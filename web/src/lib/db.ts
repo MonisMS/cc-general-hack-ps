@@ -1,7 +1,13 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { WorkflowEvent, WorkflowStatus } from "./types";
 
-export const sql = neon(process.env.DATABASE_URL!);
+// Connect lazily so `next build` works without DATABASE_URL; it's only needed at request time.
+let client: NeonQueryFunction<false, false> | undefined;
+export const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+  client ??= neon(process.env.DATABASE_URL);
+  return client(strings, ...values);
+}) as NeonQueryFunction<false, false>;
 
 export async function logEvent(
   workflowId: string,
