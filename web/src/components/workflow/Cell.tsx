@@ -1,0 +1,87 @@
+import { ExternalLink } from "lucide-react";
+import type { FieldType } from "@/lib/types";
+import { hostOf } from "@/components/utils";
+
+function looksLikeUrl(v: unknown): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v);
+}
+
+export function formatValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "";
+  if (Array.isArray(v)) return v.map(formatValue).join(", ");
+  if (typeof v === "object") return JSON.stringify(v);
+  if (typeof v === "number") return v.toLocaleString();
+  return String(v);
+}
+
+export function Cell({ value, type, full = false }: { value: unknown; type?: FieldType; full?: boolean }) {
+  if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
+    return <span className="text-zinc-700">—</span>;
+  }
+  if (Array.isArray(value) || type === "list") {
+    const arr = Array.isArray(value) ? value : String(value).split(/,\s*/);
+    const shown = full ? arr : arr.slice(0, 3);
+    return (
+      <div className={`flex gap-1 ${full ? "flex-wrap" : "flex-nowrap"}`} title={arr.map(formatValue).join(", ")}>
+        {shown.map((x, i) => (
+          <span key={i} className="whitespace-nowrap rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
+            {formatValue(x)}
+          </span>
+        ))}
+        {!full && arr.length > 3 && <span className="text-[11px] text-zinc-500">+{arr.length - 3}</span>}
+      </div>
+    );
+  }
+  if (type === "url" || looksLikeUrl(value)) {
+    const s = String(value);
+    return (
+      <a
+        href={s}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex max-w-full items-center gap-1 text-violet-300 hover:text-violet-200 hover:underline"
+        title={s}
+      >
+        <span className={full ? "break-all" : "truncate"}>{full ? s : hostOf(s) || s}</span>
+        <ExternalLink className="h-3 w-3 shrink-0" />
+      </a>
+    );
+  }
+  if (type === "email" && typeof value === "string") {
+    return (
+      <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} className="text-violet-300 hover:underline">
+        {value}
+      </a>
+    );
+  }
+  if (type === "number" || typeof value === "number") {
+    return <span className="tabular-nums">{formatValue(value)}</span>;
+  }
+  if (type === "date") {
+    const d = new Date(String(value));
+    if (!Number.isNaN(d.getTime())) {
+      return <span className="whitespace-nowrap" title={String(value)}>{d.toLocaleDateString()}</span>;
+    }
+  }
+  const s = formatValue(value);
+  if (full) return <span className="whitespace-pre-wrap break-words">{s}</span>;
+  return (
+    <span className="block truncate" title={s}>
+      {s}
+    </span>
+  );
+}
+
+export function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round((value <= 1 ? value * 100 : value) || 0);
+  const color = pct >= 75 ? "bg-emerald-400" : pct >= 50 ? "bg-amber-400" : "bg-rose-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-12 overflow-hidden rounded-full bg-white/5">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-8 text-[11px] tabular-nums text-zinc-400">{pct}%</span>
+    </div>
+  );
+}

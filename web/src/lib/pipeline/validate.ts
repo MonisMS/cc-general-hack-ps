@@ -1,0 +1,96 @@
+import type { FieldSpec, WorkflowPlan } from "../types";
+import type { Extracted } from "./extract";
+
+export interface CleanRow {
+  data: Record<string, unknown>;
+  source_name: string;
+  source_url: string;
+  confidence: number;
+  dedupe_key: string;
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function cleanValue(f: FieldSpec, v: unknown): unknown {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    v = v.replace(/\s+/g, " ").trim();
+    if (v === "" || /^(n\/a|null|none|unknown|-)$/i.test(v as string)) return null;
+  }
+  switch (f.type) {
+    case "number": {
+      if (typeof v === "number") return Number.isFinite(v) ? v : null;
+      const n = Number(String(v).replace(/[$,%\s]/g, ""));
+      return Number.isFinite(n) ? n : String(v);
+    }
+    case "url": {
+      const s = String(v);
+      try {
+        const u = new URL(s.startsWith("http") ? s : `https://${s}`);
+        return u.hostname.includes(".") ? u.toString() : null;
+      } catch {
+        return null;
+      }
+    }
+    case "email":
+      return EMAIL.test(String(v)) ? String(v).toLowerCase() : null;
+    case "date": {
+      const d = new Date(typeof v === "number" && v < 1e12 ? v * 1000 : (v as string));
+      return isNaN(d.getTime()) ? String(v) : d.toISOString().slice(0, 10);
+    }
+    case "list":
+      if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
+      return String(v).split(/[,;|]/).map((x) => x.trim()).filter(Boolean).slice(0, 12);
+    default:
+      return typeof v === "object" ? JSON.stringify(v) : String(v).slice(0, 1000);
+  }
+}
+
+const norm = (v: unknown) =>
+  String(v ?? "")
+    .toLowerCase()
+    .replace(/^https?:\/\/(www\.)?/, "")
+    .replace(/[?#].*$/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
+  const out = new Map<string, CleanRow>();
+  let invalid = 0;
+  let duplicates = 0;
+
+  for (const r of rows) {
+    const data: Record<string, unknown> = {};
+    for (const f of plan.fields) data[f.name] = cleanValue(f, r.data[f.name]);
+
+    const missingRequired = plan.fields.some((f) => f.required && data[f.name] == null);
+    const filled = plan.fields.filter((f) => data[f.name] != null).length / plan.fields.length;
+    if (missingRequired || filled < 0.25 || r.relevance < 0.3) {
+      invalid++;
+      continue;
+    }
+
+    const keyFields = plan.dedupe_on.length ? plan.dedupe_on : [plan.fields[0].name];
+    let key = keyFields.map((k) => norm(data[k])).join("|");
+    if (!key.replace(/\|/g, "")) key = norm(r.item.url);
+
+    const row: CleanRow = {
+      data,
+      source_name: r.item.source,
+      source_url: r.item.url,
+      confidence: Math.round((0.6 * r.relevance + 0.4 * filled) * 100) / 100,
+      dedupe_key: key.slice(0, 300),
+    };
+    const prev = out.get(row.dedupe_key);
+    if (prev) {
+      duplicates++;
+      // keep the more complete/confident row, but merge in any missing fields
+      const [keep, other] = row.confidence > prev.confidence ? [row, prev] : [prev, row];
+      for (const k of Object.keys(keep.data)) if (keep.data[k] == null) keep.data[k] = other.data[k];
+      out.set(row.dedupe_key, keep);
+    } else out.set(row.dedupe_key, row);
+  }
+
+  const clean = [...out.values()].sort((a, b) => b.confidence - a.confidence).slice(0, plan.max_results);
+  return { clean, invalid, duplicates };
+}

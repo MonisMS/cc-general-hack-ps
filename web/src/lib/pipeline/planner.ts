@@ -1,0 +1,163 @@
+import { CONNECTORS } from "../connectors";
+import { llmJSON } from "../llm";
+import type { ConnectorId, FieldSpec, SourceStep, WorkflowPlan } from "../types";
+
+const CONNECTOR_IDS = Object.keys(CONNECTORS) as ConnectorId[];
+
+const SYSTEM = `You are the planning agent of a data intelligence platform. A business user describes the dataset they need in plain English. You design a data-collection workflow.
+
+Available connectors (only use these ids):
+${CONNECTOR_IDS.map((id) => `- ${id}: ${CONNECTORS[id].description}`).join("\n")}
+
+Return JSON:
+{
+  "title": short dataset title (max 60 chars),
+  "intent": one sentence restating exactly what data is wanted,
+  "entity": what one row represents (e.g. "job posting", "company", "sponsor"),
+  "fields": [{"name": snake_case, "type": "string"|"number"|"url"|"date"|"email"|"list", "description": str, "required": bool}]  (4-9 fields; always include a name/title field and one url field; mark 1-2 as required),
+  "sources": [{"connector": id, "query": str, "limit": int (5-40), "reason": short why}] (1-5 steps; prefer structured API connectors when they fit; use web_search for open-ended business lists like sponsors, leads, events; use url_fetch only if the user gave URLs; queries must be short keyword queries tailored to each connector),
+  "filters": [plain-English constraints from the request, e.g. "must mention salary", "posted in last 7 days", "based in India"],
+  "dedupe_on": [field names that identify a unique row],
+  "max_results": int (default 50, max 150)
+}`;
+
+export async function planWorkflow(prompt: string): Promise<WorkflowPlan> {
+  try {
+    const plan = await llmJSON<Omit<WorkflowPlan, "planner">>(SYSTEM, `User request:\n"""${prompt}"""`, 2000);
+    if (plan) return sanitize({ ...plan, planner: "llm" }, prompt);
+  } catch (e) {
+    console.error("LLM planning failed, using heuristic", e);
+  }
+  return heuristicPlan(prompt);
+}
+
+function sanitize(plan: WorkflowPlan, prompt: string): WorkflowPlan {
+  const sources = (plan.sources ?? [])
+    .filter((s) => CONNECTOR_IDS.includes(s.connector) && s.query?.trim())
+    .slice(0, 5)
+    .map((s) => ({ ...s, limit: Math.min(Math.max(s.limit ?? 20, 3), 40) }));
+  const fields = (plan.fields ?? []).filter((f) => f?.name).slice(0, 10);
+  if (!sources.length || !fields.length) return { ...heuristicPlan(prompt), title: plan.title || prompt.slice(0, 60) };
+  return {
+    title: (plan.title || prompt).slice(0, 80),
+    intent: plan.intent || prompt,
+    entity: plan.entity || "record",
+    fields,
+    sources,
+    filters: plan.filters ?? [],
+    dedupe_on: (plan.dedupe_on ?? []).filter((d) => fields.some((f) => f.name === d)),
+    max_results: Math.min(plan.max_results || 50, 150),
+    planner: "llm",
+  };
+}
+
+// ---------- Heuristic fallback (no LLM key configured) ----------
+
+const STOP = new Set(
+  "find get list show me give collect gather scrape search for of the a an and or in on with from to that this these those all any some top best latest recent new who which are is be posted week month today companies company data about jobs job openings opening roles role hiring please i we need want github repo repos repository repositories open-source open source projects project tools most popular trending".split(
+    " ",
+  ),
+);
+
+function keywords(prompt: string, max = 5) {
+  return prompt
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[^a-z0-9+#.\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOP.has(w) && !/^\d+$/.test(w))
+    .slice(0, max)
+    .join(" ");
+}
+
+const f = (name: string, type: FieldSpec["type"], description: string, required = false): FieldSpec => ({
+  name,
+  type,
+  description,
+  required,
+});
+
+export function heuristicPlan(prompt: string): WorkflowPlan {
+  const p = prompt.toLowerCase();
+  const kw = keywords(prompt) || prompt.slice(0, 50);
+  const urls = prompt.match(/https?:\/\/\S+/g) ?? [];
+  const sources: SourceStep[] = [];
+  let fields: FieldSpec[];
+  let entity = "record";
+  let dedupe: string[] = ["name", "url"];
+
+  if (/\b(job|jobs|hiring|developer|engineer|designer|intern|role|vacanc|opening)/.test(p)) {
+    entity = "job posting";
+    const q = keywords(prompt, 3);
+    sources.push(
+      { connector: "remotive_jobs", query: q, limit: 30, reason: "Remote job board API" },
+      { connector: "arbeitnow_jobs", query: q, limit: 30, reason: "Job board API" },
+      { connector: "remoteok_jobs", query: q, limit: 30, reason: "Remote job board API" },
+    );
+    fields = [
+      f("title", "string", "Job title", true),
+      f("company", "string", "Hiring company", true),
+      f("location", "string", "Location / remote"),
+      f("salary", "string", "Salary if listed"),
+      f("job_type", "string", "Full-time, contract..."),
+      f("tags", "list", "Skills / tags"),
+      f("posted_at", "date", "Posting date"),
+      f("apply_url", "url", "Where to apply"),
+    ];
+    dedupe = ["title", "company"];
+  } else if (/\b(crypto|coin|bitcoin|ethereum|token|market cap)/.test(p)) {
+    entity = "cryptocurrency";
+    sources.push({ connector: "coingecko", query: kw, limit: 40, reason: "Live market data API" });
+    fields = [
+      f("name", "string", "Asset name", true),
+      f("symbol", "string", "Ticker"),
+      f("price_usd", "number", "Price in USD"),
+      f("market_cap", "number", "Market cap USD"),
+      f("change_24h_pct", "number", "24h change %"),
+      f("volume_24h", "number", "24h volume"),
+      f("url", "url", "Source page"),
+    ];
+    dedupe = ["symbol"];
+  } else if (/\b(github|repo|repositor|open[- ]source|library|framework)/.test(p)) {
+    entity = "repository";
+    sources.push({ connector: "github_repos", query: kw, limit: 30, reason: "GitHub search API" });
+    fields = [
+      f("name", "string", "Repository", true),
+      f("owner", "string", "Owner / org"),
+      f("description", "string", "What it does"),
+      f("stars", "number", "GitHub stars"),
+      f("language", "string", "Primary language"),
+      f("homepage", "url", "Website"),
+      f("url", "url", "Repository URL", true),
+    ];
+    dedupe = ["url"];
+  } else {
+    entity = /sponsor/.test(p) ? "sponsor" : /lead|compan|startup|vendor|agenc/.test(p) ? "company" : "result";
+    if (urls.length) sources.push({ connector: "url_fetch", query: urls.join(" "), limit: 10, reason: "User-provided URLs" });
+    sources.push(
+      { connector: "web_search", query: kw, limit: 8, reason: "Open web search for matching pages" },
+      { connector: "wikipedia", query: kw, limit: 8, reason: "Encyclopedic background entities" },
+    );
+    if (/\b(news|discussion|trend|hacker|launch)/.test(p))
+      sources.push({ connector: "hackernews", query: kw, limit: 20, reason: "Tech community discussions" });
+    fields = [
+      f("name", "string", `Name of the ${entity}`, true),
+      f("description", "string", "Short summary"),
+      f("category", "string", "Category / type"),
+      f("location", "string", "Location if known"),
+      f("url", "url", "Source / website", true),
+    ];
+  }
+
+  return {
+    title: prompt.length > 60 ? prompt.slice(0, 57) + "…" : prompt,
+    intent: prompt,
+    entity,
+    fields,
+    sources,
+    filters: [],
+    dedupe_on: dedupe,
+    max_results: 60,
+    planner: "heuristic",
+  };
+}
