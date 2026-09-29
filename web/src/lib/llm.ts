@@ -1,12 +1,12 @@
 // Provider-agnostic JSON completion. Uses whichever key is configured:
-// OPENROUTER_API_KEY → ANTHROPIC_API_KEY → OPENAI_API_KEY → GEMINI_API_KEY. Returns null when none is set
+// GEMINI_API_KEY → OPENROUTER_API_KEY → ANTHROPIC_API_KEY → OPENAI_API_KEY. Returns null when none is set
 // so callers can fall back to heuristics.
 
 export function llmProvider(): "openrouter" | "anthropic" | "openai" | "gemini" | null {
+  if (process.env.GEMINI_API_KEY) return "gemini";
   if (process.env.OPENROUTER_API_KEY) return "openrouter";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.GEMINI_API_KEY) return "gemini";
   return null;
 }
 
@@ -82,21 +82,27 @@ export async function llmJSON<T>(system: string, user: string, maxTokens = 4096)
     return parseJSON<T>(body.choices?.[0]?.message?.content ?? "");
   }
 
-  const model = process.env.LLM_MODEL || "gemini-2.5-flash";
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
+  // Try the preferred model, then lighter ones when Google reports overload / retirement.
+  const models = [process.env.LLM_MODEL || "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+  let lastErr = "";
+  for (const model of [...new Set(models)]) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       signal,
-      headers: { "content-type": "application/json" },
+      // header auth works for both classic (AIza…) and newer (AQ.…) Gemini keys
+      headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY! },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: sys }] },
         contents: [{ role: "user", parts: [{ text: user }] }],
         generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens },
       }),
-    },
-  );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const body = await res.json();
-  return parseJSON<T>(body.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "");
+    });
+    if (res.ok) {
+      const body = await res.json();
+      return parseJSON<T>(body.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "");
+    }
+    lastErr = `Gemini ${model} ${res.status}: ${(await res.text()).slice(0, 200)}`;
+    if (![404, 429, 500, 503].includes(res.status)) break;
+  }
+  throw new Error(lastErr);
 }

@@ -27,7 +27,7 @@ prompt ──▶ Planning agent (LLM) ──▶ workflow plan: schema + source s
 ## Stack
 - `web/`: Next.js 16 (App Router) with the UI and API routes. The pipeline runs in the background via `after()` on Vercel.
 - Neon serverless Postgres for workflow, dataset and history storage.
-- LLM provider: set one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY` (optionally `LLM_MODEL`). If none is set, a rule-based planner and heuristic field mapping take over, so the app still works.
+- LLM provider: set one of `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY` (optionally `LLM_MODEL`). If none is set, a rule-based planner and heuristic field mapping take over, so the app still works.
 
 ## Run locally
 ```bash
