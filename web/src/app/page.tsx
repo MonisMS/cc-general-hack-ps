@@ -1,44 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowRight,
-  Briefcase,
-  Brain,
-  Building2,
-  Coins,
-  Database,
-  Handshake,
-  ListChecks,
-  Loader2,
-  MessagesSquare,
-  Rocket,
-  ShieldCheck,
-  Sparkles,
-  Download,
-  Inbox,
-} from "lucide-react";
-import type { Workflow } from "@/lib/types";
-import { StatusBadge } from "@/components/StatusBadge";
-import { ProgressBar } from "@/components/ProgressBar";
-import { fetchJSON, isRunning, timeAgo } from "@/components/utils";
+import { ArrowUp, Sparkles, Briefcase, Building2, Coins, CornerDownLeft, GitBranch, Handshake, Loader2, MessagesSquare } from "lucide-react";
+import { StatusIcon } from "@/components/StatusBadge";
+import { fetchJSON } from "@/components/utils";
 
 const EXAMPLES = [
-  { icon: Briefcase, label: "Remote jobs", prompt: "Find remote React developer jobs posted this week with salary info" },
-  { icon: Rocket, label: "Sales leads", prompt: "AI startups on GitHub building developer tools" },
-  { icon: Handshake, label: "Sponsors", prompt: "Find sponsor opportunities for a college hackathon in India" },
-  { icon: Coins, label: "Market data", prompt: "Top 20 cryptocurrencies by market cap" },
-  { icon: MessagesSquare, label: "Discussions", prompt: "Hacker News discussions about AI coding agents this month" },
-  { icon: Building2, label: "Company list", prompt: "Largest Indian IT services companies" },
-];
-
-const STEPS = [
-  { icon: Brain, title: "Understand", body: "Parses your request into intent, entity and constraints." },
-  { icon: ListChecks, title: "Plan", body: "Designs a schema and picks the best data sources." },
-  { icon: Download, title: "Collect", body: "Runs connectors in parallel across APIs and the web." },
-  { icon: ShieldCheck, title: "Clean & validate", body: "Extracts, validates, dedupes and scores every record." },
+  { icon: Briefcase, tag: "Jobs", prompt: "Remote React developer jobs posted this week with salary info" },
+  { icon: GitBranch, tag: "Leads", prompt: "AI startups on GitHub building developer tools" },
+  { icon: Handshake, tag: "Sponsors", prompt: "Sponsor opportunities for a college hackathon in India" },
+  { icon: Coins, tag: "Market", prompt: "Top 20 cryptocurrencies by market cap" },
+  { icon: MessagesSquare, tag: "Research", prompt: "Hacker News discussions about AI coding agents this month" },
+  { icon: Building2, tag: "Companies", prompt: "Largest Indian IT services companies" },
 ];
 
 export default function Home() {
@@ -46,27 +20,10 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recent, setRecent] = useState<Workflow[] | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  const loadRecent = useCallback(async () => {
-    try {
-      const j = await fetchJSON<{ workflows: Workflow[] }>("/api/workflows");
-      setRecent((j.workflows ?? []).slice(0, 5));
-    } catch {
-      setRecent((r) => r ?? []);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch
-    loadRecent();
-    const t = setInterval(loadRecent, 5000);
-    return () => clearInterval(t);
-  }, [loadRecent]);
-
-  async function submit() {
-    const p = prompt.trim();
+  async function submit(text = prompt) {
+    const p = text.trim();
     if (!p || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -84,30 +41,29 @@ export default function Home() {
   }
 
   return (
-    <div className="relative">
-      <div className="bg-grid pointer-events-none absolute inset-x-0 top-0 h-[520px] [mask-image:linear-gradient(to_bottom,black,transparent)]" />
-      <div className="pointer-events-none absolute left-1/2 top-[-160px] h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-violet-600/20 blur-[120px]" />
+    <div className="ai-home relative overflow-hidden md:rounded-2xl">
+      <div className="ai-aura" />
+      <header className="relative flex h-12 items-center justify-between px-6 text-[13px] text-zinc-400">
+        <span>New request</span>
+        <span className="pill border border-white/15 text-zinc-200">
+          <Sparkles className="h-3.5 w-3.5 text-violet-400" /> 9 live sources
+        </span>
+      </header>
 
-      <div className="relative mx-auto max-w-4xl px-4 pb-20 pt-14 sm:px-6 md:pt-20">
-        <div className="flex justify-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-xs text-violet-200">
-            <Sparkles className="h-3.5 w-3.5" /> From plain English to a clean, source-backed dataset
-          </span>
-        </div>
-        <h1 className="mt-5 text-center text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-          What data do you{" "}
-          <span className="bg-gradient-to-r from-violet-300 via-indigo-300 to-sky-300 bg-clip-text text-transparent">
-            need today?
-          </span>
+      <div className="relative mx-auto max-w-[720px] px-4 pb-20 pt-16 text-center sm:px-6 md:pt-24">
+        <h1 className="text-[36px] font-medium leading-[1.08] tracking-[-0.03em] text-zinc-50 sm:text-[52px]">
+          Ask for data.
+          <br />
+          <span className="text-ai">Get a dataset.</span>
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-center text-[15px] leading-relaxed text-zinc-400">
-          Describe it the way you&apos;d brief an analyst. DataPilot plans the workflow, collects from live sources,
-          and delivers a deduplicated, validated table you can export.
+        <p className="mx-auto mt-5 max-w-[540px] text-[15.5px] leading-relaxed text-zinc-400">
+          Describe what you need in plain English. DataPilot plans the sources, collects from the live web, and
+          returns a clean table where every row links back to where it came from.
         </p>
 
-        {/* Prompt box */}
-        <div className="mt-10 rounded-2xl bg-gradient-to-b from-white/10 to-white/[0.02] p-px shadow-2xl shadow-violet-950/40">
-          <div className="rounded-2xl bg-zinc-900/90 backdrop-blur">
+        {/* Composer */}
+        <div className="ai-box mt-14 text-left">
+          <div className="ai-box-inner">
             <textarea
               ref={taRef}
               value={prompt}
@@ -120,127 +76,150 @@ export default function Home() {
               }}
               rows={4}
               autoFocus
-              placeholder="e.g. Find remote React developer jobs posted this week with salary info"
-              className="block w-full resize-none bg-transparent px-5 pt-5 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+              placeholder="Ask for any dataset — e.g. SaaS companies in Bangalore hiring backend engineers"
+              className="block w-full resize-none bg-transparent px-5 pt-4 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
             />
-            <div className="flex items-center justify-between gap-3 px-4 pb-4 pt-2">
-              <span className="hidden text-xs text-zinc-500 sm:block">
-                <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px]">⌘</kbd>{" "}
-                <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>{" "}
-                to run
+            <div className="flex items-center gap-2 px-4 pb-4 pt-2">
+              <span title="Sources are picked automatically" className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.07] text-zinc-300">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <span className="hidden h-9 items-center rounded-full bg-white/[0.07] px-3.5 text-[12.5px] text-zinc-300 sm:inline-flex">
+                Auto sources · dedupe · validate
+              </span>
+              <span className="ml-auto hidden items-center gap-1 text-[11.5px] text-zinc-500 sm:inline-flex">
+                <kbd className="rounded border border-white/10 px-1 font-mono text-[10.5px]">⌘</kbd>
+                <kbd className="rounded border border-white/10 px-1 font-mono text-[10.5px]">
+                  <CornerDownLeft className="inline h-2.5 w-2.5" />
+                </kbd>
               </span>
               <button
-                onClick={submit}
+                onClick={() => submit()}
                 disabled={!prompt.trim() || submitting}
-                className="ml-auto inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-600/25 transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Run workflow"
+                className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-medium text-zinc-950 shadow-[0_0_24px_-4px_rgba(255,255,255,0.45)] transition hover:shadow-[0_0_30px_-2px_rgba(255,255,255,0.6)] disabled:bg-white/10 disabled:text-zinc-500 disabled:shadow-none sm:ml-1"
               >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {submitting ? "Planning…" : "Run workflow"}
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                {submitting ? "Starting" : "Run"}
               </button>
             </div>
           </div>
         </div>
-        {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
+        {error && <p className="mt-4 text-[13px] text-zinc-300">⚠ {error}</p>}
 
-        {/* Examples */}
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          {EXAMPLES.map(({ icon: Icon, label, prompt: p }) => (
-            <button
-              key={label}
-              title={p}
-              onClick={() => {
-                setPrompt(p);
-                taRef.current?.focus();
-              }}
-              className="group inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-white"
-            >
-              <Icon className="h-3.5 w-3.5 text-zinc-500 group-hover:text-violet-300" />
-              {label}
-              <span className="hidden max-w-[220px] truncate text-zinc-500 group-hover:text-zinc-300 lg:inline">
-                · {p}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* How it works */}
-        <div className="mt-16">
-          <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-zinc-500">How it works</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map(({ icon: Icon, title, body }, i) => (
-              <div key={title} className="relative rounded-xl border border-white/5 bg-white/[0.02] p-4">
-                <div className="flex items-center gap-2">
-                  <div className="grid h-7 w-7 place-items-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
-                    <Icon className="h-3.5 w-3.5 text-violet-300" />
-                  </div>
-                  <span className="font-mono text-[10px] text-zinc-600">0{i + 1}</span>
-                </div>
-                <div className="mt-3 text-sm font-medium text-zinc-100">{title}</div>
-                <p className="mt-1 text-xs leading-relaxed text-zinc-500">{body}</p>
-                {i < STEPS.length - 1 && (
-                  <ArrowRight className="absolute -right-2.5 top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-zinc-700 lg:block" />
-                )}
-              </div>
+        {/* Suggestions */}
+        <div className="mt-14 text-left">
+          <div className="mb-2 text-[12px] font-medium text-zinc-500">Try one of these</div>
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/30 backdrop-blur">
+            {EXAMPLES.map(({ icon: Icon, tag, prompt: p }) => (
+              <button
+                key={tag}
+                onClick={() => {
+                  setPrompt(p);
+                  taRef.current?.focus();
+                }}
+                className="group flex w-full items-center gap-3 border-b border-line px-3.5 py-2.5 text-left last:border-0 hover:bg-white/[0.03]"
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 group-hover:text-zinc-300" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-300 group-hover:text-zinc-100">{p}</span>
+                <span className="text-[11.5px] text-zinc-600">{tag}</span>
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Recent */}
-        <div className="mt-14">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Recent workflows</h2>
-            <Link href="/workflows" className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-white">
-              View all <ArrowRight className="h-3 w-3" />
-            </Link>
+        {/* Demo */}
+        <div className="mt-14 text-left">
+          <div className="mb-2 flex items-baseline justify-between">
+            <div className="text-[12px] font-medium text-zinc-500">How it works</div>
+            <div className="text-[11.5px] text-zinc-600">Sample run · replays automatically</div>
           </div>
-          {recent === null ? (
-            <div className="space-y-2">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-[68px] animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
-              ))}
-            </div>
-          ) : recent.length === 0 ? (
-            <div className="flex flex-col items-center rounded-xl border border-dashed border-white/10 py-10 text-center">
-              <Inbox className="h-6 w-6 text-zinc-600" />
-              <p className="mt-2 text-sm text-zinc-400">No workflows yet</p>
-              <p className="text-xs text-zinc-600">Pick an example above to run your first one.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {recent.map((w) => (
-                <Link
-                  key={w.id}
-                  href={`/workflows/${w.id}`}
-                  className="group block rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 transition hover:border-violet-500/30 hover:bg-white/[0.04]"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/[0.04] ring-1 ring-white/5">
-                      <Database className="h-4 w-4 text-zinc-400 group-hover:text-violet-300" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-zinc-100">{w.title || w.prompt}</div>
-                      <div className="truncate text-xs text-zinc-500">
-                        {w.title ? `“${w.prompt}”` : ""}
-                      </div>
-                    </div>
-                    <div className="hidden text-right sm:block">
-                      <div className="text-sm tabular-nums text-zinc-200">{w.record_count ?? 0}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-zinc-600">records</div>
-                    </div>
-                    <div className="flex w-28 flex-col items-end gap-1">
-                      <StatusBadge status={w.status} />
-                      <span className="text-[11px] text-zinc-600">{timeAgo(w.created_at)}</span>
-                    </div>
-                  </div>
-                  {isRunning(w.status) && (
-                    <div className="mt-2.5">
-                      <ProgressBar value={w.progress} />
-                    </div>
+          <DemoRun />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Animated sample run (static data, loops) ----------
+
+const DEMO_PROMPT = "Remote React jobs with salary info";
+const DEMO_STEPS = [
+  { label: "Understand request", detail: "entity: job posting · filter: has salary" },
+  { label: "Plan workflow", detail: "8 fields · 3 sources" },
+  { label: "Collect", detail: "Remotive 16 · Arbeitnow 14 · RemoteOK 7" },
+  { label: "Extract & validate", detail: "37 items → 35 valid" },
+  { label: "Dedupe & store", detail: "2 duplicates merged" },
+];
+const DEMO_ROWS = [
+  ["Frontend Web Application Developer", "KoboToolbox", "$90k – $105k", "remotive.com"],
+  ["Senior Shopify Developer", "Sanctuary Computer", "$80k – $150k", "remotive.com"],
+  ["Senior Frontend Engineer", "Hotjar", "€70k – €85k", "remoteok.com"],
+  ["React Native Developer", "Toggl", "$75k – $95k", "arbeitnow.com"],
+  ["Full-stack Engineer (React/Node)", "Close", "$120k – $160k", "remoteok.com"],
+];
+
+function DemoRun() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => (x + 1) % 16), 700);
+    return () => clearInterval(t);
+  }, []);
+  const typed = DEMO_PROMPT.slice(0, Math.min(DEMO_PROMPT.length, tick * 9));
+  const step = tick - 3; // steps start after the prompt is typed
+  const rows = Math.max(0, Math.min(DEMO_ROWS.length, tick - 7));
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40 backdrop-blur">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-[13px]">
+        <span className="text-zinc-600">›</span>
+        <span className="text-zinc-200">{typed}</span>
+        {tick < 3 && <span className="animate-caret -ml-1 h-4 w-px bg-zinc-300" />}
+      </div>
+      <div className="grid md:grid-cols-[220px_1fr]">
+        <ol className="border-b border-line p-3 md:border-b-0 md:border-r">
+          {DEMO_STEPS.map((s, i) => {
+            const state = step > i ? "completed" : step === i ? "processing" : "queued";
+            return (
+              <li key={s.label} className="flex gap-2.5 rounded-md px-1.5 py-1.5">
+                <span className="mt-0.5">
+                  <StatusIcon status={state} size={13} />
+                </span>
+                <div className="min-w-0">
+                  <div className={`text-[12.5px] ${state === "queued" ? "text-zinc-600" : "text-zinc-200"}`}>{s.label}</div>
+                  {state !== "queued" && <div className="animate-fade-up truncate text-[11.5px] text-zinc-500">{s.detail}</div>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="min-w-0 overflow-x-auto">
+          <table className="w-full min-w-[460px] text-[12.5px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11.5px] text-zinc-500">
+                <th className="px-3 py-2 font-medium">Title</th>
+                <th className="px-3 py-2 font-medium">Company</th>
+                <th className="px-3 py-2 font-medium">Salary</th>
+                <th className="px-3 py-2 font-medium">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DEMO_ROWS.map((r, i) => (
+                <tr key={r[0]} className="h-[34px] border-b border-line last:border-0">
+                  {i < rows ? (
+                    r.map((c, j) => (
+                      <td key={j} className={`animate-fade-up truncate px-3 ${j === 0 ? "text-zinc-200" : j === 3 ? "text-violet-300" : "text-zinc-400"}`}>
+                        {c}
+                      </td>
+                    ))
+                  ) : (
+                    <td colSpan={4} className="px-3">
+                      <div className="h-2 w-2/3 rounded bg-white/[0.03]" />
+                    </td>
                   )}
-                </Link>
+                </tr>
               ))}
-            </div>
-          )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

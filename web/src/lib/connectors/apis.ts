@@ -94,6 +94,7 @@ interface WikiSearchHit {
 }
 interface WikiSummary {
   title: string;
+  type?: string;
   extract?: string;
   description?: string;
   content_urls?: { desktop?: { page?: string } };
@@ -104,7 +105,7 @@ export async function wikipedia(query: string, limit: number): Promise<Connector
   const d = await fetchJson<{ query?: { search?: WikiSearchHit[] } }>(url);
   const hits = (d.query?.search ?? []).slice(0, limit);
   const items = await Promise.all(
-    hits.map(async (h): Promise<RawItem> => {
+    hits.map(async (h): Promise<RawItem | null> => {
       const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(h.title.replace(/ /g, "_"))}`;
       let text = stripTags(h.snippet);
       let description: string | undefined;
@@ -113,6 +114,7 @@ export async function wikipedia(query: string, limit: number): Promise<Connector
           const s = await fetchJson<WikiSummary>(
             `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(h.title.replace(/ /g, "_"))}`,
           );
+          if (s.type === "disambiguation") return null; // lists of unrelated meanings, never a real entity
           if (s.extract) text = s.extract;
           description = s.description;
         } catch {
@@ -128,7 +130,7 @@ export async function wikipedia(query: string, limit: number): Promise<Connector
       };
     }),
   );
-  return { items, url };
+  return { items: items.filter((i): i is RawItem => i !== null && !/\(disambiguation\)$/i.test(i.title)), url };
 }
 
 // ---------------- CoinGecko ----------------

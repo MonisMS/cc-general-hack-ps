@@ -19,11 +19,13 @@ Return JSON:
   "filters": [plain-English constraints from the request, e.g. "must mention salary", "posted in last 7 days", "based in India"],
   "dedupe_on": [field names that identify a unique row],
   "max_results": int (default 50, max 150)
-}`;
+}
+
+If the request is vague or ambiguous, you MUST commit to the single most plausible business interpretation (never ask for clarification in "intent") (e.g. people, companies, products, jobs, events), state it explicitly in "intent", and plan concrete keyword queries for it. Never search for "disambiguation", never plan around the literal meaning of a single word, and prefer specific multi-word queries over one-word ones.`;
 
 export async function planWorkflow(prompt: string): Promise<WorkflowPlan> {
   try {
-    const plan = await llmJSON<Omit<WorkflowPlan, "planner">>(SYSTEM, `User request:\n"""${prompt}"""`, 2000);
+    const plan = await llmJSON<Omit<WorkflowPlan, "planner">>(SYSTEM, `User request:\n"""${prompt}"""`, 1200);
     if (plan) return sanitize({ ...plan, planner: "llm" }, prompt);
   } catch (e) {
     console.error("LLM planning failed, using heuristic", e);

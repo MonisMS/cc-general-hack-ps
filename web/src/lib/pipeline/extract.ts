@@ -9,7 +9,7 @@ export interface Extracted {
 
 const STRUCTURED_TEXT = 400;
 const PAGE_TEXT = 2500;
-const BATCH = 8;
+const BATCH = 6;
 const CONCURRENCY = 4;
 
 function describeItem(i: number, it: RawItem) {
@@ -34,11 +34,13 @@ Rules:
 - Skip items/rows that are irrelevant to the intent or clearly violate constraints.
 - "relevance" 0-1 = how well the row matches the intent and constraints.
 - For url fields prefer the entity's own URL; otherwise the item url.
+- Name/title fields must be specific and unique (e.g. "Girls (TV series)", not just "Girls").
+- Drop rows about disambiguation pages, navigation pages, or generic words rather than real entities.
 Return {"rows": [{"item": <ITEM number>, "relevance": number, "data": {<schema fields>}}]}`;
   const res = await llmJSON<{ rows: { item: number; relevance: number; data: Record<string, unknown> }[] }>(
     system,
     items.map((it, i) => describeItem(i, it)).join("\n\n"),
-    6000,
+    2500,
   );
   if (!res) return null;
   return (res.rows ?? [])
@@ -78,25 +80,29 @@ export async function extractAll(
   plan: WorkflowPlan,
   items: RawItem[],
   onProgress: (done: number, total: number, note?: string) => Promise<void>,
-): Promise<{ rows: Extracted[]; mode: "llm" | "heuristic" }> {
+): Promise<{ rows: Extracted[]; mode: "llm" | "heuristic" | "mixed" }> {
   const batches: RawItem[][] = [];
   for (let i = 0; i < items.length; i += BATCH) batches.push(items.slice(i, i + BATCH));
   const kw = plan.intent.toLowerCase().split(/\W+/).filter((w) => w.length > 3).slice(0, 8);
 
   const rows: Extracted[] = [];
-  let mode: "llm" | "heuristic" = "llm";
+  let llmAvailable = true;
+  let llmBatches = 0;
   let done = 0;
   let idx = 0;
   const worker = async () => {
     while (idx < batches.length) {
       const batch = batches[idx++];
       let out: Extracted[] | null = null;
-      if (mode === "llm") {
+      if (llmAvailable) {
         try {
           out = await llmBatch(plan, batch);
-          if (out === null) mode = "heuristic";
+          if (out === null) llmAvailable = false;
+          else llmBatches++;
         } catch (e) {
-          await onProgress(done, batches.length, `LLM batch failed (${(e as Error).message.slice(0, 120)}), using heuristic mapping`);
+          const msg = (e as Error).message;
+          if (/402|credits/i.test(msg)) llmAvailable = false; // don't keep hammering an empty balance
+          await onProgress(done, batches.length, `LLM batch failed (${msg.slice(0, 120)}), using heuristic mapping`);
         }
       }
       rows.push(...(out ?? batch.map((it) => heuristicMap(plan, it, kw))));
@@ -105,5 +111,6 @@ export async function extractAll(
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+  const mode = llmBatches === batches.length ? "llm" : llmBatches === 0 ? "heuristic" : "mixed";
   return { rows, mode };
 }

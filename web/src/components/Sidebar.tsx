@@ -1,71 +1,171 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Plus, Workflow as WorkflowIcon, Sparkles } from "lucide-react";
+import { Layers, PenSquare, Search } from "lucide-react";
+import type { Workflow } from "@/lib/types";
 import { Logo } from "./Logo";
+import { StatusIcon } from "./StatusBadge";
+import { CONNECTOR_LABELS, fetchJSON } from "./utils";
 
-const NAV = [
-  { href: "/", label: "New request", icon: Plus },
-  { href: "/workflows", label: "Workflows", icon: WorkflowIcon },
-];
+function useWorkflows() {
+  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
+  const pathname = usePathname();
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetchJSON<{ workflows: Workflow[] }>("/api/workflows")
+        .then((j) => alive && setWorkflows(j.workflows ?? []))
+        .catch(() => {}); // keep last good list; retry on next tick
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [pathname]);
+  return workflows;
+}
 
 export function Sidebar() {
   const pathname = usePathname();
+  const workflows = useWorkflows();
+
   return (
-    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-white/5 bg-zinc-950/80 px-3 py-5 md:flex">
-      <Link href="/" className="mb-8 flex items-center gap-2.5 px-2">
-        <Logo />
-        <div className="leading-tight">
-          <div className="text-[15px] font-semibold tracking-tight text-white">DataPilot</div>
-          <div className="text-[11px] text-zinc-500">AI data intelligence</div>
-        </div>
-      </Link>
-      <nav className="flex flex-col gap-1">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-                active
-                  ? "bg-white/[0.06] text-white"
-                  : "text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-200"
-              }`}
-            >
-              <Icon className={`h-4 w-4 ${active ? "text-violet-400" : ""}`} />
-              {label}
-            </Link>
-          );
-        })}
+    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,#0a090d_0%,#0a090d_62%,rgba(10,9,13,0.55)_100%)] px-2.5 py-3 md:flex">
+      <div className="flex items-center justify-between px-1.5">
+        <Link href="/" className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-white/[0.04]">
+          <Logo size={20} />
+          <span className="text-[13.5px] font-semibold text-zinc-100">DataPilot</span>
+        </Link>
+        <Link
+          href="/"
+          title="New request"
+          className="grid h-7 w-7 place-items-center rounded-md border border-line-strong bg-raised text-zinc-300 hover:text-zinc-100"
+        >
+          <PenSquare className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+
+      <nav className="mt-4 flex flex-col gap-px">
+        <NavItem href="/" active={pathname === "/"} icon={<PenSquare className="h-3.5 w-3.5" />}>
+          New request
+        </NavItem>
+        <NavItem
+          href="/workflows"
+          active={pathname === "/workflows"}
+          icon={<Layers className="h-3.5 w-3.5" />}
+          trailing={workflows?.length ? String(workflows.length) : undefined}
+        >
+          Workflows
+        </NavItem>
+        <NavItem href="/workflows" active={false} icon={<Search className="h-3.5 w-3.5" />}>
+          Search
+        </NavItem>
       </nav>
-      <div className="mt-auto rounded-xl border border-violet-500/15 bg-gradient-to-b from-violet-500/10 to-transparent p-3">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-violet-300">
-          <Sparkles className="h-3.5 w-3.5" /> Autonomous pipelines
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Plan → collect → extract → validate → dedupe. Every record is traceable to its source.
-        </p>
+
+      <Section title="Recent">
+        {workflows === null ? (
+          [0, 1, 2, 3].map((i) => <div key={i} className="mx-2 my-1.5 h-3.5 animate-pulse rounded bg-white/[0.04]" />)
+        ) : workflows.length === 0 ? (
+          <p className="px-2.5 py-1 text-[12px] text-zinc-600">No workflows yet</p>
+        ) : (
+          workflows.slice(0, 14).map((w, i) => {
+            const active = pathname === `/workflows/${w.id}`;
+            return (
+              <Link
+                key={w.id}
+                href={`/workflows/${w.id}`}
+                title={w.prompt}
+                style={{ animationDelay: `${i * 35}ms` }}
+                className={`animate-fade-up group flex h-7 items-center gap-2 rounded-md px-2.5 text-[12.5px] font-medium ${
+                  active ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                }`}
+              >
+                <StatusIcon status={w.status} size={12} mono={w.status === "completed"} />
+                <span className="min-w-0 flex-1 truncate">{w.title || w.prompt}</span>
+                {w.status === "completed" && (
+                  <span className="font-mono text-[10.5px] tabular-nums text-zinc-600">{w.record_count ?? 0}</span>
+                )}
+              </Link>
+            );
+          })
+        )}
+      </Section>
+
+      <div className="mt-auto">
+        <Section title="Sources">
+          <div className="flex flex-wrap gap-1 px-2.5 pb-1">
+            {Object.values(CONNECTOR_LABELS).map((label) => (
+              <span key={label} className="rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[11px] font-medium text-zinc-400">
+                {label}
+              </span>
+            ))}
+          </div>
+        </Section>
       </div>
     </aside>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-5 flex min-h-0 flex-col">
+      <div className="mb-1 px-2.5 text-[11.5px] font-semibold text-zinc-500">{title}</div>
+      <div className="flex min-h-0 flex-col gap-px overflow-y-auto">{children}</div>
+    </div>
+  );
+}
+
+function NavItem({
+  href,
+  active,
+  icon,
+  trailing,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  icon: React.ReactNode;
+  trailing?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex h-7 items-center gap-2 rounded-md px-2.5 text-[13px] font-medium ${
+        active ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+      }`}
+    >
+      <span className={active ? "text-zinc-200" : "text-zinc-500"}>{icon}</span>
+      <span className="flex-1">{children}</span>
+      {trailing && <span className="font-mono text-[11px] text-zinc-600">{trailing}</span>}
+    </Link>
   );
 }
 
 export function MobileNav() {
   const pathname = usePathname();
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/5 bg-zinc-950/90 px-4 py-3 backdrop-blur md:hidden">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-canvas/90 px-4 py-2.5 backdrop-blur md:hidden">
       <Link href="/" className="flex items-center gap-2">
-        <Logo size={26} />
-        <span className="text-sm font-semibold text-white">DataPilot</span>
+        <Logo size={20} />
+        <span className="text-[13.5px] font-semibold text-zinc-100">DataPilot</span>
       </Link>
       <nav className="flex gap-1">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {[
+          { href: "/", label: "New" },
+          { href: "/workflows", label: "Workflows" },
+        ].map(({ href, label }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
-            <Link key={href} href={href} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs ${active ? "bg-white/[0.06] text-white" : "text-zinc-400"}`}>
-              <Icon className="h-3.5 w-3.5" /> {label}
+            <Link
+              key={href}
+              href={href}
+              className={`rounded-md px-2.5 py-1 text-[12.5px] ${active ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400"}`}
+            >
+              {label}
             </Link>
           );
         })}

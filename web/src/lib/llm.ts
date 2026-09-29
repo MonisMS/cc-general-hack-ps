@@ -1,8 +1,9 @@
 // Provider-agnostic JSON completion. Uses whichever key is configured:
-// ANTHROPIC_API_KEY → OPENAI_API_KEY → GEMINI_API_KEY. Returns null when none is set
+// OPENROUTER_API_KEY → ANTHROPIC_API_KEY → OPENAI_API_KEY → GEMINI_API_KEY. Returns null when none is set
 // so callers can fall back to heuristics.
 
-export function llmProvider(): "anthropic" | "openai" | "gemini" | null {
+export function llmProvider(): "openrouter" | "anthropic" | "openai" | "gemini" | null {
+  if (process.env.OPENROUTER_API_KEY) return "openrouter";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.OPENAI_API_KEY) return "openai";
   if (process.env.GEMINI_API_KEY) return "gemini";
@@ -48,22 +49,35 @@ export async function llmJSON<T>(system: string, user: string, maxTokens = 4096)
     return parseJSON<T>(text);
   }
 
-  if (provider === "openai") {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      signal,
-      headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.LLM_MODEL || "gpt-4o-mini",
-        max_tokens: maxTokens,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: sys + " Wrap arrays in an object." },
-          { role: "user", content: user },
-        ],
-      }),
-    });
-    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (provider === "openai" || provider === "openrouter") {
+    const or = provider === "openrouter";
+    const call = (tokens: number) =>
+      fetch(or ? "https://openrouter.ai/api/v1/chat/completions" : "https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        signal,
+        headers: {
+          authorization: `Bearer ${or ? process.env.OPENROUTER_API_KEY : process.env.OPENAI_API_KEY}`,
+          "content-type": "application/json",
+          ...(or ? { "x-title": "DataPilot" } : {}),
+        },
+        body: JSON.stringify({
+          model: process.env.LLM_MODEL || (or ? "anthropic/claude-haiku-4.5" : "gpt-4o-mini"),
+          max_tokens: tokens,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: sys + " Wrap arrays in an object." },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+    let res = await call(maxTokens);
+    // OpenRouter answers 402 when the credit balance can't cover max_tokens; retry with what it can afford.
+    if (res.status === 402) {
+      const affordable = Number((await res.text()).match(/afford (\d+)/)?.[1] ?? 0);
+      if (affordable >= 400) res = await call(Math.min(maxTokens, affordable - 50));
+      else throw new Error("OpenRouter 402: out of credits");
+    }
+    if (!res.ok) throw new Error(`${or ? "OpenRouter" : "OpenAI"} ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const body = await res.json();
     return parseJSON<T>(body.choices?.[0]?.message?.content ?? "");
   }

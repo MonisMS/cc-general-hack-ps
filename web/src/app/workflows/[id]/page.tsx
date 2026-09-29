@@ -5,9 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowLeft,
   Copy,
-  Database,
   FileJson,
   FileSpreadsheet,
   Loader2,
@@ -20,7 +18,7 @@ import {
   Workflow as WorkflowIcon,
 } from "lucide-react";
 import type { DataRecord, SourceRun, Workflow, WorkflowEvent } from "@/lib/types";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, StatusIcon } from "@/components/StatusBadge";
 import { ProgressBar } from "@/components/ProgressBar";
 import { fetchJSON, formatDateTime, isRunning, timeAgo } from "@/components/utils";
 import { Pipeline } from "@/components/workflow/Pipeline";
@@ -155,104 +153,91 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   const sourcesFailed = s.sources_failed ?? detail.sources.filter((x) => x.status === "failed").length;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      <Link href="/workflows" className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
-        <ArrowLeft className="h-3.5 w-3.5" /> Workflows
-      </Link>
-
-      {/* Header */}
-      <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-2xl font-semibold tracking-tight text-white">{w.title || w.plan?.title || w.prompt}</h1>
-            <StatusBadge status={w.status} />
-          </div>
-          <blockquote className="mt-2 flex items-start gap-2 border-l-2 border-violet-500/50 pl-3 text-sm italic text-zinc-400">
-            “{w.prompt}”
-            <button
-              title="Copy prompt"
-              onClick={() => navigator.clipboard?.writeText(w.prompt)}
-              className="not-italic text-zinc-600 hover:text-zinc-300"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
-          </blockquote>
-          <p className="mt-2 text-xs text-zinc-600" title={formatDateTime(w.created_at)}>
-            Created {timeAgo(w.created_at)}
-            {w.finished_at && <> · finished {timeAgo(w.finished_at)}</>} · ID <span className="font-mono">{w.id}</span>
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
+    <div>
+      <header className="flex h-11 items-center gap-2 border-b border-line px-5 text-[13px]">
+        <Link href="/workflows" className="text-zinc-500 hover:text-zinc-200">Workflows</Link>
+        <span className="text-zinc-700">›</span>
+        <span className="min-w-0 truncate text-zinc-200">{w.title || w.plan?.title || w.prompt}</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Btn onClick={rerun} disabled={busy !== null}>
-            {busy === "rerun" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />} Rerun
+            {busy === "rerun" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Rerun
           </Btn>
           <ExportLink href={`/api/workflows/${id}/export?format=csv`} disabled={!recordCount}>
-            <FileSpreadsheet className="h-4 w-4" /> Export CSV
+            <FileSpreadsheet className="h-3.5 w-3.5" /> CSV
           </ExportLink>
           <ExportLink href={`/api/workflows/${id}/export?format=json`} disabled={!recordCount}>
-            <FileJson className="h-4 w-4" /> Export JSON
+            <FileJson className="h-3.5 w-3.5" /> JSON
           </ExportLink>
           <Btn onClick={remove} disabled={busy !== null} danger>
-            {busy === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {busy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
           </Btn>
         </div>
+      </header>
+
+      <div className="mx-auto max-w-[1400px] px-5 py-6">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-[22px] font-semibold text-zinc-100">{w.title || w.plan?.title || w.prompt}</h1>
+          <StatusBadge status={w.status} />
+        </div>
+        <div className="mt-2 flex items-start gap-2 text-[13px] text-zinc-400">
+          <span className="text-zinc-600">Prompt</span>
+          <span className="min-w-0">{w.prompt}</span>
+          <button title="Copy prompt" onClick={() => navigator.clipboard?.writeText(w.prompt)} className="text-zinc-600 hover:text-zinc-300">
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <p className="mt-1 text-[12px] text-zinc-600" title={formatDateTime(w.created_at)}>
+          Created {timeAgo(w.created_at)}
+          {w.finished_at && <> · finished {timeAgo(w.finished_at)}</>} · <span className="font-mono">{w.id}</span>
+        </p>
       </div>
 
       {running && (
-        <div className="mt-5 rounded-xl border border-violet-500/20 bg-violet-500/[0.05] p-4">
-          <div className="mb-2 flex items-center justify-between text-xs">
-            <span className="inline-flex items-center gap-1.5 text-violet-200">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <div className="mt-5 rounded-lg border border-line bg-canvas px-4 py-3">
+          <div className="mb-2 flex items-center justify-between text-[12.5px]">
+            <span className="inline-flex items-center gap-2 text-zinc-300">
+              <StatusIcon status={w.status} size={13} />
               {detail.events.at(-1)?.message ?? "Starting workflow…"}
             </span>
-            <span className="tabular-nums text-zinc-400">{Math.round(w.progress)}%</span>
+            <span className="font-mono text-[11.5px] tabular-nums text-zinc-500">{Math.round(w.progress)}%</span>
           </div>
           <ProgressBar value={w.progress} />
         </div>
       )}
 
       {w.status === "failed" && (
-        <div className="mt-5 flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+        <div className="mt-5 flex items-start gap-3 rounded-lg border border-line bg-canvas px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-rose-200">Workflow failed</p>
-            <p className="mt-0.5 break-words text-xs text-rose-300/80">{w.error || "An unknown error occurred."}</p>
+            <p className="text-[13px] font-medium text-zinc-200">Workflow failed</p>
+            <p className="mt-0.5 break-words text-[12.5px] text-zinc-500">{w.error || "An unknown error occurred."}</p>
           </div>
-          <button onClick={rerun} className="shrink-0 rounded-md bg-rose-500/15 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/25">
+          <button onClick={rerun} className="h-7 shrink-0 rounded-md bg-zinc-100 px-2.5 text-[12.5px] font-medium text-zinc-950 hover:bg-white">
             Try again
           </button>
         </div>
       )}
 
       {/* Stats */}
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Records" value={recordCount} accent="text-white" sub={s.raw !== undefined ? `from ${s.raw} raw items` : undefined} />
-        <Stat
-          label="Sources"
-          value={
-            <>
-              <span className="text-emerald-300">{sourcesOk}</span>
-              <span className="text-zinc-600"> / </span>
-              <span className={sourcesFailed ? "text-rose-300" : "text-zinc-500"}>{sourcesFailed}</span>
-            </>
-          }
-          sub="ok / failed"
-        />
-        <Stat label="Duplicates removed" value={s.duplicates ?? 0} accent="text-amber-300" />
-        <Stat label="Invalid dropped" value={s.invalid ?? 0} accent="text-rose-300" />
+      <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-lg border border-line md:grid-cols-4">
+        <Stat label="Records" value={recordCount} sub={s.raw !== undefined ? `from ${s.raw} raw items` : undefined} />
+        <Stat label="Sources" value={<>{sourcesOk}<span className="text-zinc-600"> / {sourcesOk + sourcesFailed}</span></>} sub={sourcesFailed ? `${sourcesFailed} failed` : "all responded"} />
+        <Stat label="Duplicates merged" value={s.duplicates ?? 0} />
+        <Stat label="Invalid dropped" value={s.invalid ?? 0} />
       </div>
 
       {/* Main grid */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <section className="h-fit rounded-xl border border-white/5 bg-white/[0.015] p-4 xl:sticky xl:top-6">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-200">
-            <WorkflowIcon className="h-4 w-4 text-violet-300" /> Workflow
+        <section className="h-fit rounded-lg border border-white/[0.06] bg-white/[0.012] p-4 xl:sticky xl:top-6">
+          <h2 className="mb-4 flex items-center gap-2 text-[13px] font-medium text-zinc-200">
+            <WorkflowIcon className="h-3.5 w-3.5 text-zinc-500" /> Workflow
           </h2>
           <Pipeline workflow={w} sources={detail.sources} />
         </section>
 
         <section className="min-w-0">
-          <div className="mb-4 flex gap-1 border-b border-white/5">
+          <div className="mb-4 flex gap-1 border-b border-line">
             <TabBtn active={tab === "data"} onClick={() => setTab("data")} icon={Table2} label="Data" count={recordCount} />
             <TabBtn active={tab === "sources"} onClick={() => setTab("sources")} icon={Plug} label="Sources" count={detail.sources.length} />
             <TabBtn active={tab === "log"} onClick={() => setTab("log")} icon={ScrollText} label="Activity log" count={detail.events.length} />
@@ -269,19 +254,17 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
           {tab === "log" && <ActivityLog events={detail.events} running={running} />}
         </section>
       </div>
+      </div>
     </div>
   );
 }
 
-function Stat({ label, value, sub, accent = "text-zinc-100" }: { label: string; value: React.ReactNode; sub?: string; accent?: string }) {
+function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
   return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
-        {label === "Records" && <Database className="h-3 w-3" />}
-        {label}
-      </div>
-      <div className={`mt-1.5 text-2xl font-semibold tabular-nums ${accent}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-zinc-600">{sub}</div>}
+    <div className="border-line px-4 py-3 [&:not(:last-child)]:border-r max-md:[&:nth-child(2)]:border-r-0 max-md:[&:nth-child(-n+2)]:border-b">
+      <div className="text-[12px] text-zinc-500">{label}</div>
+      <div className="mt-1 text-[22px] font-semibold tabular-nums text-zinc-100">{value}</div>
+      {sub && <div className="text-[11.5px] text-zinc-600">{sub}</div>}
     </div>
   );
 }
@@ -302,13 +285,13 @@ function TabBtn({
   return (
     <button
       onClick={onClick}
-      className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition ${
-        active ? "border-violet-500 text-white" : "border-transparent text-zinc-500 hover:text-zinc-300"
+      className={`-mb-px inline-flex items-center gap-1.5 border-b px-3 py-2 text-[13px] transition ${
+        active ? "border-zinc-200 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300"
       }`}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-3.5 w-3.5" />
       {label}
-      <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${active ? "bg-violet-500/20 text-violet-200" : "bg-white/5 text-zinc-500"}`}>
+      <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${active ? "bg-white/[0.08] text-zinc-300" : "bg-white/[0.04] text-zinc-500"}`}>
         {count}
       </span>
     </button>
@@ -331,10 +314,8 @@ function Btn({
       onClick={onClick}
       disabled={disabled}
       title={danger ? "Delete workflow" : undefined}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition disabled:opacity-40 ${
-        danger
-          ? "border-white/10 text-zinc-400 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-300"
-          : "border-white/10 bg-white/[0.03] text-zinc-200 hover:bg-white/[0.07]"
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-[12.5px] transition disabled:opacity-40 ${
+        danger ? "text-zinc-500 hover:text-zinc-200" : "text-zinc-200 hover:bg-white/[0.06]"
       }`}
     >
       {children}
@@ -345,7 +326,7 @@ function Btn({
 function ExportLink({ href, children, disabled }: { href: string; children: React.ReactNode; disabled?: boolean }) {
   if (disabled) {
     return (
-      <span className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-600">
+      <span className="inline-flex h-7 cursor-not-allowed items-center gap-1.5 rounded-md border border-line px-2.5 text-[12.5px] text-zinc-600">
         {children}
       </span>
     );
@@ -354,7 +335,7 @@ function ExportLink({ href, children, disabled }: { href: string; children: Reac
     <a
       href={href}
       download
-      className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-100 transition hover:bg-violet-500/20"
+      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-[12.5px] text-zinc-200 transition hover:bg-white/[0.06]"
     >
       {children}
     </a>

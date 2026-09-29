@@ -1,7 +1,7 @@
-import { Brain, CheckCircle2, Database, Download, Filter, ListChecks, Loader2, ScanText, ShieldCheck, XCircle, Cpu } from "lucide-react";
+import { Brain, Database, Download, Filter, ListChecks, ScanText, ShieldCheck, Cpu } from "lucide-react";
 import type { Workflow, SourceRun } from "@/lib/types";
 import { connectorLabel } from "@/components/utils";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, StatusIcon } from "@/components/StatusBadge";
 
 type StepState = "done" | "active" | "pending" | "failed";
 const ORDER = ["understand", "plan", "collect", "extract", "validate", "store"] as const;
@@ -39,26 +39,12 @@ function stepStates(w: Workflow): Record<StepId, StepState> {
 }
 
 function Dot({ state }: { state: StepState }) {
-  if (state === "done")
-    return (
-      <div className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
-        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-      </div>
-    );
-  if (state === "active")
-    return (
-      <div className="relative grid h-7 w-7 place-items-center rounded-full bg-violet-500/20 ring-1 ring-violet-500/40">
-        <span className="absolute inset-0 animate-ping rounded-full bg-violet-500/20" />
-        <Loader2 className="h-4 w-4 animate-spin text-violet-300" />
-      </div>
-    );
-  if (state === "failed")
-    return (
-      <div className="grid h-7 w-7 place-items-center rounded-full bg-rose-500/15 ring-1 ring-rose-500/30">
-        <XCircle className="h-4 w-4 text-rose-400" />
-      </div>
-    );
-  return <div className="h-7 w-7 rounded-full border border-dashed border-zinc-700 bg-zinc-900" />;
+  const status = state === "done" ? "completed" : state === "active" ? "processing" : state === "failed" ? "failed" : "queued";
+  return (
+    <div className="grid h-7 w-7 place-items-center rounded-full border border-line bg-panel">
+      <StatusIcon status={status} size={14} mono />
+    </div>
+  );
 }
 
 export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources: SourceRun[] }) {
@@ -96,8 +82,8 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
                 className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-mono text-[11px] text-zinc-300"
               >
                 {f.name}
-                <span className="text-violet-400/80">{f.type}</span>
-                {f.required && <span className="text-rose-400">*</span>}
+                <span className="text-zinc-500">{f.type}</span>
+                {f.required && <span className="text-zinc-400">*</span>}
               </span>
             ))}
           </div>
@@ -105,7 +91,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
             <div className="flex flex-wrap items-center gap-1.5">
               <Filter className="h-3 w-3 text-zinc-500" />
               {plan.filters.map((f) => (
-                <span key={f} className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-200/90 ring-1 ring-amber-500/20">
+                <span key={f} className="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-zinc-300">
                   {f}
                 </span>
               ))}
@@ -114,7 +100,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
             <span className="inline-flex items-center gap-1">
               <Cpu className="h-3 w-3" /> Planner:{" "}
-              <span className={plan.planner === "llm" ? "text-violet-300" : "text-zinc-300"}>
+              <span className={"text-zinc-300"}>
                 {plan.planner === "llm" ? "LLM" : "Heuristic"}
               </span>
             </span>
@@ -143,7 +129,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
             const matched = run && run.connector === src.connector ? run : undefined;
             return (
               <div key={i} className="flex items-start gap-2 rounded-lg border border-white/5 bg-black/20 px-2.5 py-2">
-                <span className="mt-0.5 shrink-0 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-sky-500/20">
+                <span className="mt-0.5 shrink-0 rounded border border-line px-1.5 py-0.5 text-[10.5px] text-zinc-300">
                   {connectorLabel(src.connector)}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -155,7 +141,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
                 {matched && (
                   <div className="flex shrink-0 items-center gap-1.5">
                     <span className="text-[11px] tabular-nums text-zinc-500">{matched.items} items</span>
-                    <StatusBadge status={matched.status} />
+                    <StatusBadge mono status={matched.status} />
                   </div>
                 )}
               </div>
@@ -191,9 +177,9 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
         <p className="text-zinc-500">
           {s.valid !== undefined ? (
             <>
-              <span className="text-emerald-300">{s.valid}</span> valid ·{" "}
-              <span className="text-amber-300">{s.duplicates ?? 0}</span> duplicates removed ·{" "}
-              <span className="text-rose-300">{s.invalid ?? 0}</span> invalid dropped
+              <span className="text-zinc-200">{s.valid}</span> valid ·{" "}
+              <span className="text-zinc-200">{s.duplicates ?? 0}</span> duplicates removed ·{" "}
+              <span className="text-zinc-200">{s.invalid ?? 0}</span> invalid dropped
             </>
           ) : (
             "Apply filters, check required fields, remove duplicates, score confidence."
@@ -229,7 +215,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
             {i < steps.length - 1 && (
               <span
                 className={`absolute left-[13px] top-8 bottom-0 w-px ${
-                  state === "done" ? "bg-emerald-500/30" : "bg-zinc-800"
+                  state === "done" ? "bg-zinc-700" : "bg-zinc-800"
                 }`}
               />
             )}
@@ -240,7 +226,7 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
                 <span className={`text-sm font-medium ${state === "pending" ? "text-zinc-500" : "text-zinc-100"}`}>
                   {step.title}
                 </span>
-                {state === "active" && <span className="text-[10px] uppercase tracking-wider text-violet-300">running</span>}
+                {state === "active" && <span className="text-[10px] uppercase tracking-wider text-zinc-400">running</span>}
               </div>
               <div className={state === "pending" ? "opacity-60" : ""}>{step.body}</div>
             </div>

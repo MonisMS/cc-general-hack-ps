@@ -1,12 +1,9 @@
-import { Compass } from "lucide-react";
-
-export function Logo({ size = 32 }: { size?: number }) {
+export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <div
-      className="grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-500/20 ring-1 ring-white/10"
-      style={{ width: size, height: size }}
-    >
-      <Compass className="text-white" style={{ width: size * 0.56, height: size * 0.56 }} />
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="0.5" y="0.5" width="23" height="23" rx="6" fill="#f7f8f8" />
+      <path d="M7 7h5.2a5 5 0 0 1 0 10H7z" stroke="#08090a" strokeWidth="2.2" strokeLinejoin="round" />
+      <circle cx="11.6" cy="12" r="1.6" fill="#08090a" />
+    </svg>
   );
 }

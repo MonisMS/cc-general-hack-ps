@@ -84,6 +84,8 @@ export async function runWorkflow(id: string, prompt: string) {
         ON CONFLICT DO NOTHING`;
     }
     stats.stored = clean.length;
+    if (!clean.length)
+      await logEvent(id, "validate", "No records matched the request. Try being more specific: say what kind of entity, where, and which details you need (e.g. \"female tennis players ranked by WTA points\").", "warn");
     await setStatus(id, "completed", 100, { stats });
     await logEvent(id, "store", `Dataset ready: ${clean.length} clean, source-backed records`, "success");
   } catch (e) {
