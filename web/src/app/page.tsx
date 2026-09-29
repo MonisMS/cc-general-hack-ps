@@ -69,7 +69,8 @@ export default function Home() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                // Enter sends; Shift+Enter inserts a newline; ignore Enter while an IME is composing
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   submit();
                 }
@@ -87,10 +88,10 @@ export default function Home() {
                 Auto sources · dedupe · validate
               </span>
               <span className="ml-auto hidden items-center gap-1 text-[11.5px] text-zinc-500 sm:inline-flex">
-                <kbd className="rounded border border-white/10 px-1 font-mono text-[10.5px]">⌘</kbd>
                 <kbd className="rounded border border-white/10 px-1 font-mono text-[10.5px]">
                   <CornerDownLeft className="inline h-2.5 w-2.5" />
                 </kbd>
+                to run
               </span>
               <button
                 onClick={() => submit()}
