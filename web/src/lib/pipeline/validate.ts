@@ -59,10 +59,10 @@ export const identityField = (plan: WorkflowPlan) =>
   (plan.fields.find((f) => f.required && f.type === "string") ?? plan.fields.find((f) => f.type === "string") ?? plan.fields[0]).name;
 
 /**
- * With `soft`, filter violations don't drop rows (they stay marked ✗). Used automatically when strict filtering
- * would leave nothing, so a too-tight filter shows the closest matches instead of an empty table.
+ * Rows that fail a filter are kept, marked ✗ in their checks, at half confidence so they sort below rows that
+ * pass. `reasons.failed_filters` counts them (as flagged, not dropped). Only unnamed or off-topic rows are dropped.
  */
-export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[], soft = false): {
+export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
   clean: CleanRow[];
   invalid: number;
   duplicates: number;
@@ -79,16 +79,16 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[], soft = 
     const data: Record<string, unknown> = {};
     for (const f of plan.fields) data[f.name] = cleanValue(f, r.data[f.name]);
 
-    // Keep partial rows: other columns may be empty (shown as "—"). Drop only rows with no name, rows the
-    // extractor called irrelevant, and rows whose source clearly contradicts a filter (null = not stated, kept).
+    // Keep partial rows (empty columns show as "—") and rows that fail a filter (shown ✗). Drop only rows with
+    // no name and rows the extractor rated as not being the requested thing at all.
     const failed = plan.filters.filter((_, i) => r.checks?.[i] === false);
-    if (data[idField] == null) reasons.no_name++;
-    else if (r.relevance < 0.3) reasons.irrelevant++;
-    else if (failed.length) for (const f of failed) reasons.failed_filters[f] = (reasons.failed_filters[f] ?? 0) + 1;
-    if (data[idField] == null || r.relevance < 0.3 || (failed.length && !soft)) {
+    if (data[idField] == null || r.relevance < 0.2) {
+      if (data[idField] == null) reasons.no_name++;
+      else reasons.irrelevant++;
       invalid++;
       continue;
     }
+    for (const f of failed) reasons.failed_filters[f] = (reasons.failed_filters[f] ?? 0) + 1;
     const filled = plan.fields.filter((f) => data[f.name] != null).length / plan.fields.length;
 
     const why = typeof r.why === "string" ? r.why.replace(/\s+/g, " ").trim().slice(0, 240) : "";
@@ -108,7 +108,7 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[], soft = 
       data,
       source_name: r.item.source,
       source_url: r.item.url,
-      confidence: Math.round((0.6 * r.relevance + 0.4 * filled) * 100) / 100,
+      confidence: Math.round((0.6 * r.relevance + 0.4 * filled) * (failed.length ? 0.5 : 1) * 100) / 100,
       dedupe_key: key.slice(0, 300),
     };
     const prev = out.get(row.dedupe_key);
@@ -122,7 +122,6 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[], soft = 
   }
 
   const clean = [...out.values()].sort((a, b) => b.confidence - a.confidence).slice(0, plan.max_results);
-  if (!soft && !clean.length && Object.keys(reasons.failed_filters).length)
-    return { ...validateAndDedupe(plan, rows, true), reasons, relaxed: true };
-  return { clean, invalid, duplicates, reasons, relaxed: false };
+  const relaxed = clean.some((c) => Array.isArray(c.data[CHECKS_KEY]) && (c.data[CHECKS_KEY] as unknown[]).includes(false));
+  return { clean, invalid, duplicates, reasons, relaxed };
 }

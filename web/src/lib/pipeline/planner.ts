@@ -16,7 +16,7 @@ Return JSON:
   "intent": one sentence restating exactly what data is wanted,
   "entity": what one row represents (e.g. "job posting", "company", "sponsor"),
   "fields": [{"name": snake_case, "type": "string"|"number"|"url"|"date"|"email"|"list", "description": str, "required": bool}]  (4-9 fields; always include a name/title field and one url field; mark 1-2 as required),
-  "sources": [{"connector": id, "query": str, "limit": int (5-40), "reason": short why}] (1-5 steps; prefer structured API connectors when they fit; use web_search for open-ended business lists like sponsors, leads, events; use url_fetch only if the user gave URLs; queries must be short keyword queries tailored to each connector),
+  "sources": [{"connector": id, "query": str, "limit": int (20-40), "reason": short why}] (3-5 steps, so the dataset has enough rows: combine every connector that fits and add web_search steps with different phrasings; prefer structured API connectors when they fit; use web_search for open-ended business lists like sponsors, leads, events; use url_fetch only if the user gave URLs; queries must be short keyword queries tailored to each connector),
   "filters": [plain-English constraints from the request, e.g. "must mention salary", "posted in last 7 days", "based in India"],
   "dedupe_on": [field names that identify a unique row],
   "max_results": int (default 50, max 150)
@@ -50,7 +50,7 @@ function sanitize(plan: WorkflowPlan, prompt: string): WorkflowPlan {
   const sources = (plan.sources ?? [])
     .filter((s) => CONNECTOR_IDS.includes(s.connector) && s.query?.trim())
     .slice(0, 5)
-    .map((s) => ({ ...s, limit: Math.min(Math.max(s.limit ?? 20, 3), 40) }));
+    .map((s) => ({ ...s, limit: Math.min(Math.max(s.limit ?? 25, 15), 40) }));
   const fields = (plan.fields ?? []).filter((f) => f?.name).slice(0, 10);
   if (!sources.length || !fields.length) return { ...heuristicPlan(prompt), title: plan.title || prompt.slice(0, 60) };
   return {

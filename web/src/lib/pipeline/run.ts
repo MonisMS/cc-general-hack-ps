@@ -8,7 +8,7 @@ import { RejectedRequestError } from "./safety";
 import { identityField, validateAndDedupe, type CleanRow } from "./validate";
 
 // Raw items kept per run; env override for quota-limited runs (eval --lite).
-const maxRaw = () => Math.min(Math.max(Number(process.env.MAX_RAW_ITEMS) || 90, 6), 150);
+const maxRaw = () => Math.min(Math.max(Number(process.env.MAX_RAW_ITEMS) || 120, 6), 150);
 
 /**
  * Upsert rows by dedupe key so ids (and fetched_at = first seen) stay stable across live batches and refreshes.
@@ -61,7 +61,6 @@ function describeDrops(r: DropReasons, idField: string) {
   return [
     r.no_name && `${r.no_name} had no ${idField.replace(/_/g, " ")}`,
     r.irrelevant && `${r.irrelevant} didn't match the request`,
-    ...Object.entries(r.failed_filters).map(([f, n]) => `${n} failed "${f}"`),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -163,7 +162,7 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     let { clean, invalid, duplicates, reasons, relaxed } = validateAndDedupe(work, rows);
 
     // Thin result: one extra web search phrased from the dataset title, then validate everything again
-    const want = Math.min(10, work.max_results);
+    const want = Math.min(20, work.max_results);
     const topUpQuery = work.title.slice(0, 120);
     if (clean.length < want && !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())) {
       await assertNotCancelled(id, stats.run_started_at);
@@ -184,9 +183,9 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     stats.extracted = rows.length;
     Object.assign(stats, { invalid, duplicates, valid: clean.length, dropped: reasons });
     const drops = describeDrops(reasons, identityField(work));
-    if (relaxed)
-      await logEvent(id, "validate", `No row met every filter (${drops}), so showing the ${clean.length} closest matches with the failed filter marked ✗`, "warn");
-    else await logEvent(id, "validate", `Validation: kept ${clean.length}, dropped ${invalid}${drops ? ` (${drops})` : ""}, merged ${duplicates} duplicates`);
+    const flagged = Object.entries(reasons.failed_filters).map(([f, n]) => `${n} marked ✗ for "${f}"`).join(" · ");
+    if (relaxed) await logEvent(id, "validate", `Kept rows that miss a filter, ranked lower and marked ✗: ${flagged}`, "warn");
+    await logEvent(id, "validate", `Validation: kept ${clean.length}, dropped ${invalid}${drops ? ` (${drops})` : ""}, merged ${duplicates} duplicates`);
 
     // Store the final snapshot; live batches already inserted most rows
     await sync;

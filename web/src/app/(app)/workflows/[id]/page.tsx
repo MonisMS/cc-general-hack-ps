@@ -453,7 +453,6 @@ function emptyReason(s: Workflow["stats"]): string | undefined {
   const parts = [
     d.no_name && `${d.no_name} had no name`,
     d.irrelevant && `${d.irrelevant} didn't match the request`,
-    ...Object.entries(d.failed_filters).map(([f, n]) => `${n} failed "${f}"`),
   ].filter(Boolean);
   return `Collected ${s.raw} items, but none passed: ${parts.join(", ") || "nothing usable was found"}. Rerun with a looser filter or a broader request.`;
 }

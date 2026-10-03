@@ -14,9 +14,19 @@ interface HnHit {
 }
 
 export async function hackernews(query: string, limit: number): Promise<ConnectorResult> {
-  const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${Math.min(limit, 100)}`;
-  const d = await fetchJson<{ hits?: HnHit[] }>(url);
-  const items: RawItem[] = (d.hits ?? []).slice(0, limit).map((h) => {
+  // Algolia ranks all-time popular stories first, so recent requests found almost nothing. Fetch the best
+  // matches from the last 60 days alongside the all-time ones, recent first, and dedupe.
+  const n = Math.min(Math.max(limit, 20), 100);
+  const base = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${n}`;
+  const since = Math.floor(Date.now() / 1000) - 60 * 86_400;
+  const url = `${base}&numericFilters=created_at_i>${since}`;
+  const [recent, allTime] = await Promise.all([
+    fetchJson<{ hits?: HnHit[] }>(url).catch(() => ({ hits: [] as HnHit[] })),
+    fetchJson<{ hits?: HnHit[] }>(base),
+  ]);
+  const seen = new Set<string>();
+  const hits = [...(recent.hits ?? []), ...(allTime.hits ?? [])].filter((h) => !seen.has(h.objectID) && seen.add(h.objectID));
+  const items: RawItem[] = hits.slice(0, Math.max(limit, 30)).map((h) => {
     const hnUrl = `https://news.ycombinator.com/item?id=${h.objectID}`;
     return {
       source: "hackernews",
