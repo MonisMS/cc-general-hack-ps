@@ -50,7 +50,9 @@ const norm = (v: unknown) =>
   String(v ?? "")
     .toLowerCase()
     .replace(/^https?:\/\/(www\.)?/, "")
-    .replace(/[?#].*$/, "")
+    // drop the fragment and tracking params only: many sites identify the item in the query (item?id=123)
+    .replace(/#.*$/, "")
+    .replace(/([?&])(utm_[a-z]+|ref|fbclid|gclid)=[^&]*/g, "$1")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
