@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { failStuckWorkflows, sql } from "@/lib/db";
 import { createWorkflow } from "@/lib/workflows";
 import { requireUser } from "@/lib/auth/access";
+import { blockedReason } from "@/lib/pipeline/safety";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
   const { prompt, review } = await req.json().catch(() => ({}));
   if (typeof prompt !== "string" || prompt.trim().length < 5)
     return NextResponse.json({ error: "Describe the data you need (at least a few words)." }, { status: 400 });
+  const blocked = blockedReason(prompt);
+  if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
   const id = await createWorkflow(prompt.trim().slice(0, 2000), { review: review === true, ownerId: user.id });
   return NextResponse.json({ id });
 }

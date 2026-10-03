@@ -181,9 +181,12 @@ export async function webSearch(query: string, limit: number): Promise<Connector
   if (!hits.length) {
     // Last resort: Wikipedia full-text search so the pipeline still gets something traceable.
     try {
+      // Wikipedia full-text search matches any article mentioning the words, so it is labelled as a fallback
+      // (visible in the Sources tab and the row's source) rather than passed off as web results.
       const w = await wikipedia(query, limit);
       if (w.items.length) {
-        return { items: w.items.map((i) => ({ ...i, source: "web_search" as const })), url: w.url };
+        console.warn(`web_search: search engines returned nothing for "${query}", used Wikipedia instead`);
+        return { items: w.items.map((i) => ({ ...i, source: "wikipedia" as const })), url: w.url };
       }
     } catch (e) {
       errors.push(`wikipedia: ${e instanceof Error ? e.message : String(e)}`);

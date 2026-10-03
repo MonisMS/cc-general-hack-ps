@@ -61,7 +61,8 @@ Rules:
 - Only use facts present in the item; never invent values. Use null when unknown.
 - A structured item (with fields) usually yields one row. A web page may contain several ${plan.entity}s (e.g. a list of sponsors) - emit one row per real entity found, max 15 per item.
 - Skip items/rows that are irrelevant to the intent. Do NOT skip a row just because a constraint is unmet or not stated; report that in "checks" instead.
-- "relevance" 0-1 = how well the row matches the intent and constraints.
+- Each row must BE a "${plan.entity}" matching the subject of the intent. Matching only the constraints (e.g. it mentions the right city or date) is NOT a match: an article, event or person that merely mentions the place is not a ${plan.entity}. Skip it, or give relevance 0.
+- "relevance" 0-1 = how well the row matches the subject of the intent; constraints are judged separately in "checks".
 - For url fields prefer the entity's own URL; otherwise the item url.
 - Name/title fields must be specific and unique (e.g. "Girls (TV series)", not just "Girls").
 - Drop rows about disambiguation pages, navigation pages, or generic words rather than real entities.

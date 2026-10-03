@@ -4,6 +4,7 @@ import { llmProvider } from "../llm";
 import type { DropReasons, RawItem, SourceStep, Workflow, WorkflowPlan } from "../types";
 import { extractAll } from "./extract";
 import { planWorkflow } from "./planner";
+import { RejectedRequestError } from "./safety";
 import { identityField, validateAndDedupe, type CleanRow } from "./validate";
 
 // Raw items kept per run; env override for quota-limited runs (eval --lite).
@@ -42,6 +43,8 @@ async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
     // "empty" rather than "ok" so a search that silently found nothing stands out in the Sources tab
     await sql`INSERT INTO sources (workflow_id, connector, query, url, status, items, duration_ms)
               VALUES (${id}, ${step.connector}, ${step.query}, ${r.url ?? null}, ${r.items.length ? "ok" : "empty"}, ${r.items.length}, ${ms})`;
+    if (r.items.length && r.items.every((it) => it.source === "wikipedia") && step.connector === "web_search")
+      await logEvent(id, "collect", `Web search engines returned nothing for "${step.query}", so these results come from Wikipedia search and may only mention the topic`, "warn");
     await logEvent(id, "collect", r.items.length ? `✓ ${c.label} returned ${r.items.length} items in ${(ms / 1000).toFixed(1)}s` : `${c.label} found nothing for "${step.query}"`, r.items.length ? "success" : "warn");
     return r.items;
   } catch (e) {
@@ -84,6 +87,10 @@ export async function runWorkflow(id: string, prompt: string, opts: { review?: b
   } catch (e) {
     if (e instanceof CancelledError) return void (await logEvent(id, "cancel", "Stopped by you before collection started", "warn"));
     const msg = (e as Error).message;
+    if (e instanceof RejectedRequestError) {
+      await setStatus(id, "failed", 100, { error: msg, title: "Request not supported" });
+      return void (await logEvent(id, "plan", `Refused: ${msg}`, "warn"));
+    }
     await setStatus(id, "failed", 100, { error: msg });
     await logEvent(id, "error", msg, "error");
     return;

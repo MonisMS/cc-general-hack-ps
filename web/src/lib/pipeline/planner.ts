@@ -1,6 +1,7 @@
 import { CONNECTORS } from "../connectors";
 import { llmJSON } from "../llm";
 import type { ConnectorId, FieldSpec, SourceStep, WorkflowPlan } from "../types";
+import { blockedReason, REJECTION_MESSAGE, RejectedRequestError } from "./safety";
 
 const CONNECTOR_IDS = Object.keys(CONNECTORS) as ConnectorId[];
 
@@ -21,15 +22,23 @@ Return JSON:
   "max_results": int (default 50, max 150)
 }
 
+The "intent" and "entity" must keep the user's subject (what kind of thing, about what): a place is only a constraint, never the whole request. "Video editing jobs in Lucknow" → entity "job posting", intent about video editing jobs; never "anything related to Lucknow".
+
 Locations: if the user names a place (city, state, country, region), it is a HARD constraint. Add a filter like "located in <place> (or <nearby places> if the user said near)" and do NOT widen it to "remote" or "anywhere" unless the user explicitly asks for remote work. "Freelance", "contract" or "part-time" describe the job type, not the location: a freelance job must still be in or open to the named place. For a named place outside Europe, never use arbeitnow_jobs (Europe only), and use remotive_jobs/remoteok_jobs only if the user explicitly accepts remote work. Instead plan 2-3 web_search steps with different phrasings that name the place and its main cities, e.g. "video editor jobs Lucknow", "video editing jobs Noida Uttar Pradesh", "freelance video editor Uttar Pradesh".
 
-If the request is vague or ambiguous, you MUST commit to the single most plausible business interpretation (never ask for clarification in "intent") (e.g. people, companies, products, jobs, events), state it explicitly in "intent", and plan concrete keyword queries for it. Never search for "disambiguation", never plan around the literal meaning of a single word, and prefer specific multi-word queries over one-word ones.`;
+Refuse instead of planning when the request asks for sexual or adult content, rates or lists people by their looks or as dating/sexual prospects (e.g. "hot girls in <city>"), seeks private individuals or their personal details (home addresses, private phone numbers, people "near me"), or serves something illegal or harmful. Then return only {"rejected": true, "reason": one short sentence}. Never reinterpret such a request into a different, acceptable dataset. Ordinary business, public-figure and job requests are fine and must not be refused.
+
+If the request is vague or ambiguous (and not refused), you MUST commit to the single most plausible business interpretation (never ask for clarification in "intent") (e.g. people, companies, products, jobs, events), state it explicitly in "intent", and plan concrete keyword queries for it. Never search for "disambiguation", never plan around the literal meaning of a single word, and prefer specific multi-word queries over one-word ones.`;
 
 export async function planWorkflow(prompt: string): Promise<WorkflowPlan> {
+  const blocked = blockedReason(prompt);
+  if (blocked) throw new RejectedRequestError(blocked);
   try {
-    const plan = await llmJSON<Omit<WorkflowPlan, "planner">>(SYSTEM, `User request:\n"""${prompt}"""`, 1200);
+    const plan = await llmJSON<Omit<WorkflowPlan, "planner"> & { rejected?: boolean; reason?: string }>(SYSTEM, `User request:\n"""${prompt}"""`, 1200);
+    if (plan?.rejected) throw new RejectedRequestError(`${REJECTION_MESSAGE}${plan.reason ? ` Reason: ${String(plan.reason).slice(0, 200)}` : ""}`);
     if (plan) return sanitize({ ...plan, planner: "llm" }, prompt);
   } catch (e) {
+    if (e instanceof RejectedRequestError) throw e; // never fall back to the heuristic planner for a refused request
     console.error("LLM planning failed, using heuristic", e);
   }
   return heuristicPlan(prompt);
