@@ -68,6 +68,7 @@ Rules:
 - "why" = one short sentence (max 25 words) citing the concrete evidence from the item that makes this row match the intent.
 - "quote" = a short excerpt (10-35 words) copied EXACTLY, character for character, from the item that proves the row's key facts.
 - "checks" = one entry per constraint, in order: true if the item shows it is met, false if it shows it is violated, null if the item doesn't say. Use [] when there are no constraints.
+- Location constraints: a row located in a different city/state/country is false. A remote role counts as met only if the constraint itself allows remote AND the role is open to people in the named place (e.g. "Remote, Europe only" fails "India or remote").
 Return {"rows": [{"item": <ITEM number>, "relevance": number, "why": string, "quote": string, "checks": [true|false|null], "data": {<schema fields>}}]}`;
   const res = await llmJSON<{
     rows: { item: number; relevance: number; why?: string; quote?: string; checks?: unknown[]; data: Record<string, unknown> }[];

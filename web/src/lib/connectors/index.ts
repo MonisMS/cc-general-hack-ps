@@ -13,19 +13,19 @@ export const CONNECTORS: Record<ConnectorId, Connector> = {
   remotive_jobs: {
     label: "Remotive (remote jobs)",
     description:
-      "Remote job postings from Remotive.com (mostly tech: software, data, devops, design, marketing, support). Structured fields: title, company, location, salary, job_type, tags, posted_at, apply_url. Query: 1-3 short keywords like a role or skill, e.g. \"python\", \"frontend react\", \"data engineer\". Do NOT include words like 'remote' or locations.",
+      "Remote-only job postings from Remotive.com, worldwide; no on-site jobs and nothing tied to a specific city (mostly tech: software, data, devops, design, marketing, support). Structured fields: title, company, location, salary, job_type, tags, posted_at, apply_url. Query: 1-3 short keywords like a role or skill, e.g. \"python\", \"frontend react\", \"data engineer\". Do NOT include words like 'remote' or locations.",
     run: remotiveJobs,
   },
   arbeitnow_jobs: {
     label: "Arbeitnow (EU jobs)",
     description:
-      "Recent job postings from Arbeitnow, mostly Europe/Germany (many on-site/hybrid, some remote, some in German). Structured fields: title, company, location, remote, job_type, tags, posted_at, apply_url. Query: keywords matched client-side against title/company/tags/location, e.g. \"backend developer berlin\" or \"marketing\".",
+      "Recent job postings from Arbeitnow, Europe only (mostly Germany/Switzerland/Austria); never use it for jobs in other regions (many on-site/hybrid, some remote, some in German). Structured fields: title, company, location, remote, job_type, tags, posted_at, apply_url. Query: keywords matched client-side against title/company/tags/location, e.g. \"backend developer berlin\" or \"marketing\".",
     run: arbeitnowJobs,
   },
   remoteok_jobs: {
     label: "RemoteOK (remote jobs)",
     description:
-      "Latest ~100 remote job postings from RemoteOK (tech/startups, often with salary ranges). Structured fields: title, company, location, salary, tags, posted_at, apply_url. Query: skill/role keywords matched against title/company/tags, e.g. \"golang\", \"devops\", \"senior engineer\".",
+      "Latest ~100 remote-only job postings from RemoteOK (no on-site or city-specific jobs) (tech/startups, often with salary ranges). Structured fields: title, company, location, salary, tags, posted_at, apply_url. Query: skill/role keywords matched against title/company/tags, e.g. \"golang\", \"devops\", \"senior engineer\".",
     run: remoteokJobs,
   },
   hackernews: {

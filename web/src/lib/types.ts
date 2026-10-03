@@ -67,6 +67,13 @@ export interface ConnectorResult {
   url?: string; // the request URL we hit (for the Sources tab)
 }
 
+/** Why rows were dropped during validation, for the activity log and the empty-table message. */
+export interface DropReasons {
+  no_name: number; // the row had no name/title, so it can't be shown as an entity
+  irrelevant: number; // the extractor rated it as not matching the request
+  failed_filters: Record<string, number>; // filter text → rows that clearly violated it
+}
+
 export interface Workflow {
   id: string;
   prompt: string;
@@ -87,6 +94,7 @@ export interface Workflow {
     run_started_at?: string; // rows first seen after this are NEW
     added?: number;
     removed?: number;
+    dropped?: DropReasons;
   };
   error: string | null;
   created_at: string;
@@ -124,7 +132,7 @@ export interface SourceRun {
   connector: string;
   query: string | null;
   url: string | null;
-  status: "ok" | "failed" | "skipped";
+  status: "ok" | "empty" | "failed" | "skipped";
   items: number;
   duration_ms: number | null;
   error: string | null;

@@ -1,4 +1,4 @@
-import { CHECKS_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type FieldSpec, type WorkflowPlan } from "../types";
+import { CHECKS_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DropReasons, type FieldSpec, type WorkflowPlan } from "../types";
 import type { Extracted } from "./extract";
 
 export interface CleanRow {
@@ -54,22 +54,32 @@ const norm = (v: unknown) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
+/** The column that names a row (job title, company name…). The only field a row must have. */
+export const identityField = (plan: WorkflowPlan) =>
+  (plan.fields.find((f) => f.required && f.type === "string") ?? plan.fields.find((f) => f.type === "string") ?? plan.fields[0]).name;
+
 export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
   const out = new Map<string, CleanRow>();
   let invalid = 0;
   let duplicates = 0;
+  const reasons: DropReasons = { no_name: 0, irrelevant: 0, failed_filters: {} };
+  const idField = identityField(plan);
 
   for (const r of rows) {
     const data: Record<string, unknown> = {};
     for (const f of plan.fields) data[f.name] = cleanValue(f, r.data[f.name]);
 
-    const missingRequired = plan.fields.some((f) => f.required && data[f.name] == null);
-    const violates = r.checks?.slice(0, plan.filters.length).some((c) => c === false) ?? false;
-    const filled = plan.fields.filter((f) => data[f.name] != null).length / plan.fields.length;
-    if (missingRequired || violates || filled < 0.25 || r.relevance < 0.3) {
+    // Keep partial rows: other columns may be empty (shown as "—"). Drop only rows with no name, rows the
+    // extractor called irrelevant, and rows whose source clearly contradicts a filter (null = not stated, kept).
+    const failed = plan.filters.filter((_, i) => r.checks?.[i] === false);
+    if (data[idField] == null) reasons.no_name++;
+    else if (r.relevance < 0.3) reasons.irrelevant++;
+    else if (failed.length) for (const f of failed) reasons.failed_filters[f] = (reasons.failed_filters[f] ?? 0) + 1;
+    if (data[idField] == null || r.relevance < 0.3 || failed.length) {
       invalid++;
       continue;
     }
+    const filled = plan.fields.filter((f) => data[f.name] != null).length / plan.fields.length;
 
     const why = typeof r.why === "string" ? r.why.replace(/\s+/g, " ").trim().slice(0, 240) : "";
     if (why) data[WHY_KEY] = why;
@@ -102,5 +112,5 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
   }
 
   const clean = [...out.values()].sort((a, b) => b.confidence - a.confidence).slice(0, plan.max_results);
-  return { clean, invalid, duplicates };
+  return { clean, invalid, duplicates, reasons };
 }

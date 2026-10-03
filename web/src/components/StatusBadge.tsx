@@ -18,6 +18,13 @@ export function StatusIcon({ status, size = 14, mono = false }: { status: Workfl
         <path d="M4.3 7.2l1.8 1.8 3.6-3.8" className="stroke-zinc-950" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
+  if (status === "empty")
+    return (
+      <svg width={s} height={s} viewBox="0 0 14 14" aria-hidden>
+        <circle cx="7" cy="7" r="5.8" fill="none" className="stroke-zinc-400" strokeWidth="1.4" />
+        <path d="M4.5 7h5" className="stroke-zinc-400" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
   if (status === "cancelled")
     return (
       <svg width={s} height={s} viewBox="0 0 14 14" aria-hidden>
@@ -61,6 +68,7 @@ const LABELS: Record<string, string> = {
   failed: "Failed",
   cancelled: "Stopped",
   ok: "OK",
+  empty: "No results",
   skipped: "Skipped",
 };
 

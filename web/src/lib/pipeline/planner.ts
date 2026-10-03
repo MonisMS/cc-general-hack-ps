@@ -21,6 +21,8 @@ Return JSON:
   "max_results": int (default 50, max 150)
 }
 
+Locations: if the user names a place (city, state, country, region), it is a HARD constraint. Add a filter like "located in <place> (or <nearby places> if the user said near)" and do NOT widen it to "remote" or "anywhere" unless the user explicitly asks for remote work. "Freelance", "contract" or "part-time" describe the job type, not the location: a freelance job must still be in or open to the named place. For a named place outside Europe, never use arbeitnow_jobs (Europe only), and use remotive_jobs/remoteok_jobs only if the user explicitly accepts remote work. Instead plan 2-3 web_search steps with different phrasings that name the place and its main cities, e.g. "video editor jobs Lucknow", "video editing jobs Noida Uttar Pradesh", "freelance video editor Uttar Pradesh".
+
 If the request is vague or ambiguous, you MUST commit to the single most plausible business interpretation (never ask for clarification in "intent") (e.g. people, companies, products, jobs, events), state it explicitly in "intent", and plan concrete keyword queries for it. Never search for "disambiguation", never plan around the literal meaning of a single word, and prefer specific multi-word queries over one-word ones.`;
 
 export async function planWorkflow(prompt: string): Promise<WorkflowPlan> {
@@ -95,6 +97,7 @@ export function heuristicPlan(prompt: string): WorkflowPlan {
       { connector: "remotive_jobs", query: q, limit: 30, reason: "Remote job board API" },
       { connector: "arbeitnow_jobs", query: q, limit: 30, reason: "Job board API" },
       { connector: "remoteok_jobs", query: q, limit: 30, reason: "Remote job board API" },
+      { connector: "web_search", query: `${keywords(prompt, 6)} jobs`, limit: 10, reason: "Local and on-site job listings" },
     );
     fields = [
       f("title", "string", "Job title", true),

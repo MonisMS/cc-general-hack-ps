@@ -388,7 +388,9 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
                   ? "The workflow failed before producing records. Check the activity log for details."
                   : w.status === "review"
                     ? "Approve the plan above and rows will stream in here."
-                    : undefined
+                    : w.status === "completed"
+                      ? emptyReason(s)
+                      : undefined
               }
             />
           )}
@@ -441,6 +443,19 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
       {sub && <div className="text-[11.5px] text-zinc-600">{sub}</div>}
     </div>
   );
+}
+
+/** Why a finished run has no rows, from the validator's drop counts. */
+function emptyReason(s: Workflow["stats"]): string | undefined {
+  if (!s.raw) return "No source returned anything. Check the Sources tab, then rephrase the request or add a source in the plan.";
+  const d = s.dropped;
+  if (!d) return undefined;
+  const parts = [
+    d.no_name && `${d.no_name} had no name`,
+    d.irrelevant && `${d.irrelevant} didn't match the request`,
+    ...Object.entries(d.failed_filters).map(([f, n]) => `${n} failed "${f}"`),
+  ].filter(Boolean);
+  return `Collected ${s.raw} items, but none passed: ${parts.join(", ") || "nothing usable was found"}. Rerun with a looser filter or a broader request.`;
 }
 
 function TabBtn({

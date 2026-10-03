@@ -2,12 +2,17 @@ import { clip, isAllowedByRobots } from "./http";
 
 // Firecrawl (https://docs.firecrawl.dev) handles what our own fetcher can't: JS-rendered pages,
 // bot walls and search + full-page content in one call. Optional: used only when FIRECRAWL_API_KEY
-// is set, and callers fall back to the built-in scrapers on any error.
+// is set, and callers fall back to the built-in scrapers on any error. FIRECRAWL_API_KEY may hold several
+// comma-separated keys; when one is out of credits or rate-limited the next one is tried.
 
 const API = "https://api.firecrawl.dev/v2";
 const PAGE_CHARS = 20_000;
 
-export const firecrawlEnabled = () => !!process.env.FIRECRAWL_API_KEY;
+const keys = () => (process.env.FIRECRAWL_API_KEY ?? "").split(",").map((k) => k.trim()).filter(Boolean);
+export const firecrawlEnabled = () => keys().length > 0;
+
+// Index of the key to try first; moves past keys that ran out so later calls skip them.
+let current = 0;
 
 interface FcDoc {
   url?: string;
@@ -19,15 +24,26 @@ interface FcDoc {
 }
 
 async function call<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string } & T;
-  if (!res.ok || json.success === false) throw new Error(`Firecrawl ${res.status}: ${json.error ?? "request failed"}`.slice(0, 200));
-  return json;
+  const all = keys();
+  let lastErr = "";
+  for (let i = 0; i < all.length; i++) {
+    const k = (current + i) % all.length;
+    const res = await fetch(`${API}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${all[k]}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string } & T;
+    if (res.ok && json.success !== false) {
+      current = k;
+      return json;
+    }
+    lastErr = `Firecrawl ${res.status}: ${json.error ?? "request failed"}`.slice(0, 200);
+    // bad key, out of credits or rate-limited: try the next key; anything else is about the request itself
+    if (![401, 402, 429].includes(res.status)) break;
+  }
+  throw new Error(lastErr);
 }
 
 /** Strip markdown image syntax and collapse whitespace so the extractor sees prose, not noise. */

@@ -1,10 +1,10 @@
 import { CONNECTORS } from "../connectors";
 import { assertNotCancelled, CancelledError, logEvent, setStatus, sql } from "../db";
 import { llmProvider } from "../llm";
-import type { RawItem, Workflow, WorkflowPlan } from "../types";
+import type { DropReasons, RawItem, SourceStep, Workflow, WorkflowPlan } from "../types";
 import { extractAll } from "./extract";
 import { planWorkflow } from "./planner";
-import { validateAndDedupe, type CleanRow } from "./validate";
+import { identityField, validateAndDedupe, type CleanRow } from "./validate";
 
 // Raw items kept per run; env override for quota-limited runs (eval --lite).
 const maxRaw = () => Math.min(Math.max(Number(process.env.MAX_RAW_ITEMS) || 90, 6), 150);
@@ -29,6 +29,39 @@ async function syncRecords(id: string, clean: CleanRow[], prune: boolean): Promi
     AND dedupe_key NOT IN (SELECT jsonb_array_elements_text(${JSON.stringify(clean.map((c) => c.dedupe_key))}::jsonb))
     RETURNING id`;
   return gone.length;
+}
+
+/** Run one source step, recording it in `sources` and the activity log. Failures return no items. */
+async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
+  const c = CONNECTORS[step.connector];
+  const t0 = Date.now();
+  await logEvent(id, "collect", `→ ${c.label}: "${step.query}"`);
+  try {
+    const r = await c.run(step.query, step.limit ?? 20);
+    const ms = Date.now() - t0;
+    // "empty" rather than "ok" so a search that silently found nothing stands out in the Sources tab
+    await sql`INSERT INTO sources (workflow_id, connector, query, url, status, items, duration_ms)
+              VALUES (${id}, ${step.connector}, ${step.query}, ${r.url ?? null}, ${r.items.length ? "ok" : "empty"}, ${r.items.length}, ${ms})`;
+    await logEvent(id, "collect", r.items.length ? `✓ ${c.label} returned ${r.items.length} items in ${(ms / 1000).toFixed(1)}s` : `${c.label} found nothing for "${step.query}"`, r.items.length ? "success" : "warn");
+    return r.items;
+  } catch (e) {
+    const msg = (e as Error).message.slice(0, 300);
+    await sql`INSERT INTO sources (workflow_id, connector, query, status, duration_ms, error)
+              VALUES (${id}, ${step.connector}, ${step.query}, 'failed', ${Date.now() - t0}, ${msg})`;
+    await logEvent(id, "collect", `✗ ${c.label} failed: ${msg}`, "error");
+    return [];
+  }
+}
+
+/** One line per drop reason, e.g. `3 had no title · 5 failed "located in Uttar Pradesh"`. */
+function describeDrops(r: DropReasons, idField: string) {
+  return [
+    r.no_name && `${r.no_name} had no ${idField.replace(/_/g, " ")}`,
+    r.irrelevant && `${r.irrelevant} didn't match the request`,
+    ...Object.entries(r.failed_filters).map(([f, n]) => `${n} failed "${f}"`),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Stage 1: understand + plan. With `review`, stop so the user can edit the plan before running it. */
@@ -75,27 +108,7 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     await setStatus(id, "collecting", 15, { stats });
 
     // Collect (all sources in parallel)
-    const results = await Promise.all(
-      work.sources.map(async (step) => {
-        const c = CONNECTORS[step.connector];
-        const t0 = Date.now();
-        await logEvent(id, "collect", `→ ${c.label}: "${step.query}"`);
-        try {
-          const r = await c.run(step.query, step.limit ?? 20);
-          const ms = Date.now() - t0;
-          await sql`INSERT INTO sources (workflow_id, connector, query, url, status, items, duration_ms)
-                    VALUES (${id}, ${step.connector}, ${step.query}, ${r.url ?? null}, 'ok', ${r.items.length}, ${ms})`;
-          await logEvent(id, "collect", `✓ ${c.label} returned ${r.items.length} items in ${(ms / 1000).toFixed(1)}s`, r.items.length ? "success" : "warn");
-          return r.items;
-        } catch (e) {
-          const msg = (e as Error).message.slice(0, 300);
-          await sql`INSERT INTO sources (workflow_id, connector, query, status, duration_ms, error)
-                    VALUES (${id}, ${step.connector}, ${step.query}, 'failed', ${Date.now() - t0}, ${msg})`;
-          await logEvent(id, "collect", `✗ ${c.label} failed: ${msg}`, "error");
-          return [] as RawItem[];
-        }
-      }),
-    );
+    const results = await Promise.all(work.sources.map((step) => collectStep(id, step)));
     stats.sources_ok = results.filter((r) => r.length).length;
     stats.sources_failed = work.sources.length - stats.sources_ok;
 
@@ -140,9 +153,31 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     await logEvent(id, "extract", `Extracted ${rows.length} candidate rows (${mode} extraction)`, "success");
 
     // Validate + dedupe
-    const { clean, invalid, duplicates } = validateAndDedupe(work, rows);
-    Object.assign(stats, { invalid, duplicates, valid: clean.length });
-    await logEvent(id, "validate", `Validation: ${invalid} rows dropped (missing required fields, failed criteria or low relevance), ${duplicates} duplicates merged`);
+    let { clean, invalid, duplicates, reasons } = validateAndDedupe(work, rows);
+
+    // Thin result: one extra web search phrased from the dataset title, then validate everything again
+    const want = Math.min(10, work.max_results);
+    const topUpQuery = work.title.slice(0, 120);
+    if (clean.length < want && !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())) {
+      await assertNotCancelled(id, stats.run_started_at);
+      await logEvent(id, "collect", `Only ${clean.length} row${clean.length === 1 ? "" : "s"} so far, so running one extra web search`);
+      const fresh = (await collectStep(id, { connector: "web_search", query: topUpQuery, limit: 10 })).filter((it) => !seen.has(it.url));
+      if (fresh.length) {
+        fresh.forEach((it) => seen.add(it.url));
+        stats.raw = (stats.raw ?? 0) + fresh.length;
+        const more = await extractAll(work, fresh, async (_d, _t, note) => {
+          await assertNotCancelled(id, stats.run_started_at);
+          if (note) await logEvent(id, "extract", note, "warn");
+        });
+        rows.push(...more.rows);
+        ({ clean, invalid, duplicates, reasons } = validateAndDedupe(work, rows));
+        await logEvent(id, "extract", `Extra search added ${more.rows.length} candidate rows`, "success");
+      }
+    }
+    stats.extracted = rows.length;
+    Object.assign(stats, { invalid, duplicates, valid: clean.length, dropped: reasons });
+    const drops = describeDrops(reasons, identityField(work));
+    await logEvent(id, "validate", `Validation: kept ${clean.length}, dropped ${invalid}${drops ? ` (${drops})` : ""}, merged ${duplicates} duplicates`);
 
     // Store the final snapshot; live batches already inserted most rows
     await sync;
@@ -155,7 +190,7 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
       await logEvent(id, "refresh", `What changed: +${added} new, ${removed} no longer listed, ${clean.length - added} still there`, "success");
     }
     if (!clean.length)
-      await logEvent(id, "validate", "No records matched the request. Try being more specific: say what kind of entity, where, and which details you need (e.g. \"female tennis players ranked by WTA points\").", "warn");
+      await logEvent(id, "validate", `No records matched the request${drops ? `: ${drops}` : ""}. Try loosening a filter in the plan, or say what kind of entity, where, and which details you need.`, "warn");
     await setStatus(id, "completed", 100, { stats });
     await logEvent(id, "store", `Dataset ready: ${clean.length} clean, source-backed records`, "success");
   } catch (e) {
