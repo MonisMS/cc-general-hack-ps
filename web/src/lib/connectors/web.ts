@@ -144,7 +144,8 @@ export async function webSearch(query: string, limit: number): Promise<Connector
       const pages = await firecrawlSearch(query, limit);
       if (pages.length)
         return {
-          url: `https://api.firecrawl.dev/v2/search?q=${encodeURIComponent(query)}`,
+          // a link people can open from the Sources tab (the Firecrawl API itself only accepts POST)
+          url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
           items: pages.map((p) => ({
             source: "web_search" as const,
             url: p.url,
