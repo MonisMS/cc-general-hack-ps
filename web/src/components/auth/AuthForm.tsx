@@ -49,7 +49,8 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   async function google() {
     setBusy("google");
     setError(null);
-    const { error } = await authClient.signIn.social({ provider: "google", callbackURL: AFTER_AUTH });
+    // absolute URL: a bare path would be resolved against the auth server's origin, not this app
+    const { error } = await authClient.signIn.social({ provider: "google", callbackURL: `${window.location.origin}${AFTER_AUTH}` });
     if (error) {
       setError(error.message || "Google sign-in failed.");
       setBusy(null);
