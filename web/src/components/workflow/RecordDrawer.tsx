@@ -3,16 +3,19 @@
 import { useEffect } from "react";
 import { Clock, ExternalLink, Link2, X } from "lucide-react";
 import type { DataRecord, FieldSpec } from "@/lib/types";
-import { formatDateTime, hostOf, humanize } from "@/components/utils";
+import { connectorLabel, formatDateTime, hostOf, humanize } from "@/components/utils";
 import { Cell, ConfidenceBar } from "./Cell";
+import { Evidence, MatchDetails } from "./Match";
 
 export function RecordDrawer({
   record,
   fields,
+  criteria,
   onClose,
 }: {
   record: DataRecord | null;
   fields: FieldSpec[];
+  criteria: string[];
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -23,7 +26,7 @@ export function RecordDrawer({
 
   if (!record) return null;
   const known = new Set(fields.map((f) => f.name));
-  const extra = Object.keys(record.data).filter((k) => !known.has(k));
+  const extra = Object.keys(record.data).filter((k) => !known.has(k) && !k.startsWith("_"));
   const rows: { key: string; type?: FieldSpec["type"]; desc?: string }[] = [
     ...fields.map((f) => ({ key: f.name, type: f.type, desc: f.description })),
     ...extra.map((k) => ({ key: k })),
@@ -46,12 +49,12 @@ export function RecordDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.06] p-3.5">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-violet-200">
+          <div className="glass rounded-xl p-3.5">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
               <Link2 className="h-3.5 w-3.5" /> Traceability
             </div>
             <p className="mt-1.5 text-sm text-zinc-300">
-              Fetched from <span className="font-medium text-white">{record.source_name}</span>
+              Fetched from <span className="font-medium text-zinc-50">{connectorLabel(record.source_name)}</span>
               {record.source_url && (
                 <>
                   {" "}
@@ -68,7 +71,7 @@ export function RecordDrawer({
                   href={record.source_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-violet-500"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-zinc-200"
                 >
                   Open source <ExternalLink className="h-3 w-3" />
                 </a>
@@ -81,15 +84,21 @@ export function RecordDrawer({
             </div>
           </div>
 
+          <Evidence record={record} fields={fields} />
+          <MatchDetails record={record} criteria={criteria} />
+
           <dl className="mt-5 divide-y divide-white/5">
             {rows.map(({ key, type, desc }) => (
               <div key={key} className="grid grid-cols-[140px_1fr] gap-3 py-2.5 text-sm">
                 <dt className="text-xs text-zinc-500" title={desc}>
                   {humanize(key)}
-                  {type && <div className="font-mono text-[10px] text-zinc-700">{type}</div>}
+                  {fields.find((f) => f.name === key)?.ai && <div className="text-[10px] text-accent-soft">AI column</div>}
                 </dt>
                 <dd className="min-w-0 text-zinc-200">
                   <Cell value={record.data[key]} type={type} full />
+                  {typeof record.data[`_basis_${key}`] === "string" && record.data[`_basis_${key}`] !== "" && (
+                    <div className="mt-1 text-[11.5px] text-zinc-500">Based on: {String(record.data[`_basis_${key}`])}</div>
+                  )}
                 </dd>
               </div>
             ))}

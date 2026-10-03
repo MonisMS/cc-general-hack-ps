@@ -12,6 +12,8 @@ import {
   queryWords,
 } from "./http";
 import { wikipedia } from "./apis";
+import { firecrawlEnabled, firecrawlScrape, firecrawlSearch } from "./firecrawl";
+import { assertPublicUrl } from "./safe-url";
 
 interface SearchHit {
   title: string;
@@ -123,10 +125,11 @@ function relevant(hits: SearchHit[], query: string): SearchHit[] {
 }
 
 /** Fetch a page respecting robots.txt; returns null on any failure. */
-async function fetchReadable(url: string, maxChars = 4000): Promise<{ title: string; text: string; html: string; finalUrl: string } | null> {
+async function fetchReadable(url: string, maxChars = 20_000): Promise<{ title: string; text: string; html: string; finalUrl: string } | null> {
   try {
+    await assertPublicUrl(url);
     if (!(await isAllowedByRobots(url))) return null;
-    const { html, finalUrl } = await fetchPage(url, { userAgent: BROWSER_UA, timeoutMs: 10_000 });
+    const { html, finalUrl } = await fetchPage(url, { userAgent: BROWSER_UA, timeoutMs: 10_000, publicOnly: true });
     const { title, text } = extractMainText(html);
     return { title, text: clip(text, maxChars), html, finalUrl };
   } catch {
@@ -135,6 +138,25 @@ async function fetchReadable(url: string, maxChars = 4000): Promise<{ title: str
 }
 
 export async function webSearch(query: string, limit: number): Promise<ConnectorResult> {
+  // Preferred: Firecrawl search returns rendered page content for each hit in one call.
+  if (firecrawlEnabled()) {
+    try {
+      const pages = await firecrawlSearch(query, limit);
+      if (pages.length)
+        return {
+          url: `https://api.firecrawl.dev/v2/search?q=${encodeURIComponent(query)}`,
+          items: pages.map((p) => ({
+            source: "web_search" as const,
+            url: p.url,
+            title: p.title || p.url,
+            text: p.snippet ? `${p.snippet}\n\n${p.text}` : p.text,
+            fields: { title: p.title, url: p.url, snippet: p.snippet, page_fetched: !!p.text, via: "firecrawl" },
+          })),
+        };
+    } catch (e) {
+      console.warn("Firecrawl search failed, falling back to built-in search", e);
+    }
+  }
   const engines: [string, string, (q: string) => Promise<SearchHit[]>, boolean][] = [
     ["duckduckgo", `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, searchDdg, false],
     ["bing-rss", `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, searchBingRss, true],
@@ -182,7 +204,7 @@ export async function webSearch(query: string, limit: number): Promise<Connector
       source: "web_search",
       url: h.url,
       title: h.title || page?.title || h.url,
-      text: clip(text, 4500),
+      text: clip(text, 20_000), // focused down to the relevant passages at extraction time
       fields: { title: h.title, url: h.url, snippet: h.snippet, page_fetched: !!page },
     };
   });
@@ -207,11 +229,28 @@ export async function urlFetch(query: string, limit: number): Promise<ConnectorR
   await Promise.all(
     urls.map(async (url) => {
       try {
+        await assertPublicUrl(url); // user-supplied: never fetch internal addresses (SSRF)
         if (!(await isAllowedByRobots(url))) {
           errors.push(`${url}: disallowed by robots.txt`);
           return;
         }
-        const { html, finalUrl } = await fetchPage(url, { userAgent: BROWSER_UA });
+        if (firecrawlEnabled()) {
+          try {
+            const p = await firecrawlScrape(url);
+            const linkBlock = p.links.length ? `\n\nLINKS:\n${p.links.slice(0, 40).map((l) => `- ${l}`).join("\n")}` : "";
+            items.push({
+              source: "url_fetch",
+              url: p.url,
+              title: p.title || p.url,
+              text: p.text + linkBlock,
+              fields: { url: p.url, links: p.links.slice(0, 40), via: "firecrawl" },
+            });
+            return;
+          } catch (e) {
+            console.warn(`Firecrawl scrape failed for ${url}, using built-in fetch`, e);
+          }
+        }
+        const { html, finalUrl } = await fetchPage(url, { userAgent: BROWSER_UA, publicOnly: true });
         const { title, text } = extractMainText(html);
         const links = extractLinks(html, finalUrl, 30);
         const linkBlock = links.length ? `\n\nLINKS:\n${links.map((l) => `- ${l.text} — ${l.url}`).join("\n")}` : "";
@@ -219,7 +258,7 @@ export async function urlFetch(query: string, limit: number): Promise<ConnectorR
           source: "url_fetch",
           url: finalUrl,
           title: title || finalUrl,
-          text: clip(text, 4000) + linkBlock,
+          text: clip(text, 20_000) + linkBlock,
           fields: { url: finalUrl, links },
         });
       } catch (e) {

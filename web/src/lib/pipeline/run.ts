@@ -1,29 +1,82 @@
 import { CONNECTORS } from "../connectors";
-import { logEvent, setStatus, sql } from "../db";
+import { assertNotCancelled, CancelledError, logEvent, setStatus, sql } from "../db";
 import { llmProvider } from "../llm";
-import type { RawItem, WorkflowPlan } from "../types";
+import type { RawItem, Workflow, WorkflowPlan } from "../types";
 import { extractAll } from "./extract";
 import { planWorkflow } from "./planner";
-import { validateAndDedupe } from "./validate";
+import { validateAndDedupe, type CleanRow } from "./validate";
 
-const MAX_RAW = 90;
+// Raw items kept per run; env override for quota-limited runs (eval --lite).
+const maxRaw = () => Math.min(Math.max(Number(process.env.MAX_RAW_ITEMS) || 90, 6), 150);
 
-/** End-to-end workflow: understand → plan → collect → extract → validate/dedupe → store. */
-export async function runWorkflow(id: string, prompt: string) {
-  const stats: Record<string, number> = {};
+/**
+ * Upsert rows by dedupe key so ids (and fetched_at = first seen) stay stable across live batches and refreshes.
+ * Existing keys are merged (`old || new`) so AI-column values added later survive. With `prune`, rows no longer
+ * in `clean` are removed; returns how many were.
+ */
+async function syncRecords(id: string, clean: CleanRow[], prune: boolean): Promise<number> {
+  if (clean.length) {
+    await sql`INSERT INTO records (workflow_id, data, source_name, source_url, confidence, dedupe_key)
+      SELECT ${id}, x.data, x.source_name, x.source_url, x.confidence, x.dedupe_key
+      FROM jsonb_to_recordset(${JSON.stringify(clean)}::jsonb)
+        AS x(data jsonb, source_name text, source_url text, confidence real, dedupe_key text)
+      ON CONFLICT (workflow_id, dedupe_key) DO UPDATE SET
+        data = records.data || EXCLUDED.data, source_name = EXCLUDED.source_name,
+        source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence`;
+  }
+  if (!prune) return 0;
+  const gone = await sql`DELETE FROM records WHERE workflow_id = ${id}
+    AND dedupe_key NOT IN (SELECT jsonb_array_elements_text(${JSON.stringify(clean.map((c) => c.dedupe_key))}::jsonb))
+    RETURNING id`;
+  return gone.length;
+}
+
+/** Stage 1: understand + plan. With `review`, stop so the user can edit the plan before running it. */
+export async function runWorkflow(id: string, prompt: string, opts: { review?: boolean } = {}) {
+  let plan: WorkflowPlan;
   try {
-    // 1. Understand + plan
     await setStatus(id, "planning", 5);
     const provider = llmProvider();
-    await logEvent(id, "understand", provider ? `Analyzing request with ${provider} planning agent…` : "No LLM key configured — using rule-based planner");
-    const plan: WorkflowPlan = await planWorkflow(prompt);
-    await setStatus(id, "collecting", 15, { plan, title: plan.title });
+    await logEvent(id, "understand", provider ? `Analyzing request with ${provider} planning agent…` : "No LLM key configured, so the rule-based planner is used");
+    plan = await planWorkflow(prompt);
+    await assertNotCancelled(id);
     await logEvent(id, "plan", `Planned "${plan.title}": ${plan.fields.length} fields, ${plan.sources.length} source steps (${plan.planner} planner)`, "success");
     await logEvent(id, "plan", `Schema: ${plan.fields.map((f) => f.name).join(", ")}`);
+    if (opts.review) {
+      await setStatus(id, "review", 15, { plan, title: plan.title });
+      await logEvent(id, "plan", "Plan ready for review: edit columns, sources and filters, then run it");
+      return;
+    }
+    await setStatus(id, "collecting", 15, { plan, title: plan.title });
+  } catch (e) {
+    if (e instanceof CancelledError) return void (await logEvent(id, "cancel", "Stopped by you before collection started", "warn"));
+    const msg = (e as Error).message;
+    await setStatus(id, "failed", 100, { error: msg });
+    await logEvent(id, "error", msg, "error");
+    return;
+  }
+  await executePlan(id, plan);
+}
 
-    // 2. Collect (all sources in parallel)
+/** Stage 2: collect → extract → validate/dedupe → store. Also used to refresh a dataset with its saved plan. */
+export async function executePlan(id: string, plan: WorkflowPlan, opts: { refresh?: boolean } = {}) {
+  const [prev] = await sql`SELECT stats, now() AS started FROM workflows WHERE id = ${id}`;
+  const prevRuns = (prev?.stats as Workflow["stats"])?.runs ?? 0;
+  const runs = (opts.refresh ? Math.max(prevRuns, 1) : prevRuns) + 1; // datasets from before run counting still refresh as #2
+  // DB clock, so it compares cleanly with records.fetched_at (default now()) for NEW badges
+  const stats: Workflow["stats"] = { runs, run_started_at: new Date(prev.started).toISOString() };
+  // AI columns are filled on demand, not extracted from sources; keep their stored values untouched.
+  const work: WorkflowPlan = { ...plan, fields: plan.fields.filter((f) => !f.ai) };
+  try {
+    if (opts.refresh) {
+      await sql`DELETE FROM sources WHERE workflow_id = ${id}`;
+      await logEvent(id, "refresh", `Refresh #${runs - 1}: re-collecting with the saved plan (no planning call needed)`);
+    }
+    await setStatus(id, "collecting", 15, { stats });
+
+    // Collect (all sources in parallel)
     const results = await Promise.all(
-      plan.sources.map(async (step) => {
+      work.sources.map(async (step) => {
         const c = CONNECTORS[step.connector];
         const t0 = Date.now();
         await logEvent(id, "collect", `→ ${c.label}: "${step.query}"`);
@@ -44,11 +97,12 @@ export async function runWorkflow(id: string, prompt: string) {
       }),
     );
     stats.sources_ok = results.filter((r) => r.length).length;
-    stats.sources_failed = plan.sources.length - stats.sources_ok;
+    stats.sources_failed = work.sources.length - stats.sources_ok;
 
     // interleave sources so a cap doesn't starve any one of them; drop exact-URL repeats
     const seen = new Set<string>();
     const raw: RawItem[] = [];
+    const MAX_RAW = maxRaw();
     for (let i = 0; raw.length < MAX_RAW && results.some((r) => r[i]); i++)
       for (const r of results)
         if (r[i] && !seen.has(r[i].url) && raw.length < MAX_RAW) {
@@ -56,39 +110,59 @@ export async function runWorkflow(id: string, prompt: string) {
           raw.push(r[i]);
         }
     stats.raw = raw.length;
+    await assertNotCancelled(id, stats.run_started_at);
     if (!raw.length) throw new Error("No data could be collected from any source. Try rephrasing the request.");
     await logEvent(id, "collect", `Collected ${raw.length} raw items from ${stats.sources_ok} sources`, "success");
 
-    // 3. Extract / structure
+    // Extract, streaming validated rows into the table after every batch
     await setStatus(id, "processing", 45, { stats });
-    await logEvent(id, "extract", `Extracting structured "${plan.entity}" rows…`);
-    const { rows, mode } = await extractAll(plan, raw, async (done, total, note) => {
+    await logEvent(id, "extract", `Extracting structured "${work.entity}" rows…`);
+    let sync = Promise.resolve(); // batches finish concurrently; apply their snapshots in order
+    let lastLive = 0;
+    const { rows, mode } = await extractAll(work, raw, async (done, total, note, rowsSoFar) => {
+      await assertNotCancelled(id, stats.run_started_at); // throwing here stops the remaining batches
       if (note) await logEvent(id, "extract", note, "warn");
       await sql`UPDATE workflows SET progress = ${45 + Math.round((done / total) * 40)}, updated_at = now() WHERE id = ${id}`;
+      if (!rowsSoFar || done === total) return; // the final sync happens after validation below
+      const snapshot = validateAndDedupe(work, [...rowsSoFar]).clean;
+      sync = sync
+        .then(async () => {
+          await syncRecords(id, snapshot, false);
+          if (snapshot.length > lastLive) {
+            await logEvent(id, "stream", `${snapshot.length} validated rows live (batch ${done}/${total})`);
+            lastLive = snapshot.length;
+          }
+        })
+        .catch((e) => console.error("live sync failed", e));
+      await sync;
     });
     stats.extracted = rows.length;
     await logEvent(id, "extract", `Extracted ${rows.length} candidate rows (${mode} extraction)`, "success");
 
-    // 4. Validate + dedupe
-    const { clean, invalid, duplicates } = validateAndDedupe(plan, rows);
+    // Validate + dedupe
+    const { clean, invalid, duplicates } = validateAndDedupe(work, rows);
     Object.assign(stats, { invalid, duplicates, valid: clean.length });
-    await logEvent(id, "validate", `Validation: ${invalid} rows dropped (missing required fields / low relevance), ${duplicates} duplicates merged`);
+    await logEvent(id, "validate", `Validation: ${invalid} rows dropped (missing required fields, failed criteria or low relevance), ${duplicates} duplicates merged`);
 
-    // 5. Store
-    await sql`DELETE FROM records WHERE workflow_id = ${id}`;
-    if (clean.length) {
-      await sql`INSERT INTO records (workflow_id, data, source_name, source_url, confidence, dedupe_key)
-        SELECT ${id}, x.data, x.source_name, x.source_url, x.confidence, x.dedupe_key
-        FROM jsonb_to_recordset(${JSON.stringify(clean)}::jsonb)
-          AS x(data jsonb, source_name text, source_url text, confidence real, dedupe_key text)
-        ON CONFLICT DO NOTHING`;
-    }
+    // Store the final snapshot; live batches already inserted most rows
+    await sync;
+    await assertNotCancelled(id, stats.run_started_at);
+    const removed = await syncRecords(id, clean, true);
     stats.stored = clean.length;
+    if (runs > 1) {
+      const [{ added }] = await sql`SELECT count(*)::int AS added FROM records WHERE workflow_id = ${id} AND fetched_at >= ${stats.run_started_at}`;
+      Object.assign(stats, { added, removed });
+      await logEvent(id, "refresh", `What changed: +${added} new, ${removed} no longer listed, ${clean.length - added} still there`, "success");
+    }
     if (!clean.length)
       await logEvent(id, "validate", "No records matched the request. Try being more specific: say what kind of entity, where, and which details you need (e.g. \"female tennis players ranked by WTA points\").", "warn");
     await setStatus(id, "completed", 100, { stats });
     await logEvent(id, "store", `Dataset ready: ${clean.length} clean, source-backed records`, "success");
   } catch (e) {
+    if (e instanceof CancelledError) {
+      await logEvent(id, "cancel", `Stopped by you. ${(await sql`SELECT count(*)::int AS c FROM records WHERE workflow_id = ${id}`)[0].c} rows collected so far were kept.`, "warn");
+      return;
+    }
     const msg = (e as Error).message;
     await setStatus(id, "failed", 100, { stats, error: msg });
     await logEvent(id, "error", msg, "error");

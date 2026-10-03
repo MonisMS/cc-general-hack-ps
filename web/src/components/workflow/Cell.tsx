@@ -40,7 +40,7 @@ export function Cell({ value, type, full = false }: { value: unknown; type?: Fie
         target="_blank"
         rel="noreferrer"
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex max-w-full items-center gap-1 text-violet-300 hover:text-violet-200 hover:underline"
+        className="inline-flex max-w-full items-center gap-1 text-accent-soft hover:text-accent-ink hover:underline"
         title={s}
       >
         <span className={full ? "break-all" : "truncate"}>{full ? s : hostOf(s) || s}</span>
@@ -50,7 +50,7 @@ export function Cell({ value, type, full = false }: { value: unknown; type?: Fie
   }
   if (type === "email" && typeof value === "string") {
     return (
-      <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} className="text-violet-300 hover:underline">
+      <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} className="text-accent-soft hover:underline">
         {value}
       </a>
     );
@@ -75,7 +75,7 @@ export function Cell({ value, type, full = false }: { value: unknown; type?: Fie
 
 export function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round((value <= 1 ? value * 100 : value) || 0);
-  const color = pct >= 75 ? "bg-emerald-400" : pct >= 50 ? "bg-amber-400" : "bg-rose-400";
+  const color = pct >= 75 ? "bg-success" : pct >= 50 ? "bg-running" : "bg-danger";
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-12 overflow-hidden rounded-full bg-white/5">

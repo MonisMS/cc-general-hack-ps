@@ -7,7 +7,8 @@ import { Layers, PenSquare, Search } from "lucide-react";
 import type { Workflow } from "@/lib/types";
 import { Logo } from "./Logo";
 import { StatusIcon } from "./StatusBadge";
-import { CONNECTOR_LABELS, fetchJSON } from "./utils";
+import { AccountMenu } from "./AccountMenu";
+import { fetchJSON } from "./utils";
 
 function useWorkflows() {
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
@@ -33,14 +34,14 @@ export function Sidebar() {
   const workflows = useWorkflows();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,#0a090d_0%,#0a090d_62%,rgba(10,9,13,0.55)_100%)] px-2.5 py-3 md:flex">
+    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,var(--color-sidebar)_0%,var(--color-sidebar)_62%,color-mix(in_oklab,var(--color-sidebar)_55%,transparent)_100%)] px-2.5 py-3 md:flex">
       <div className="flex items-center justify-between px-1.5">
         <Link href="/" className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-white/[0.04]">
           <Logo size={20} />
           <span className="text-[13.5px] font-semibold text-zinc-100">DataPilot</span>
         </Link>
         <Link
-          href="/"
+          href="/new"
           title="New request"
           className="grid h-7 w-7 place-items-center rounded-md border border-line-strong bg-raised text-zinc-300 hover:text-zinc-100"
         >
@@ -49,7 +50,7 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-4 flex flex-col gap-px">
-        <NavItem href="/" active={pathname === "/"} icon={<PenSquare className="h-3.5 w-3.5" />}>
+        <NavItem href="/new" active={pathname === "/new"} icon={<PenSquare className="h-3.5 w-3.5" />}>
           New request
         </NavItem>
         <NavItem
@@ -94,16 +95,8 @@ export function Sidebar() {
         )}
       </Section>
 
-      <div className="mt-auto">
-        <Section title="Sources">
-          <div className="flex flex-wrap gap-1 px-2.5 pb-1">
-            {Object.values(CONNECTOR_LABELS).map((label) => (
-              <span key={label} className="rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[11px] font-medium text-zinc-400">
-                {label}
-              </span>
-            ))}
-          </div>
-        </Section>
+      <div className="mt-auto pt-3">
+        <AccountMenu />
       </div>
     </aside>
   );
@@ -153,12 +146,12 @@ export function MobileNav() {
         <Logo size={20} />
         <span className="text-[13.5px] font-semibold text-zinc-100">DataPilot</span>
       </Link>
-      <nav className="flex gap-1">
+      <nav className="flex items-center gap-1">
         {[
-          { href: "/", label: "New" },
+          { href: "/new", label: "New" },
           { href: "/workflows", label: "Workflows" },
         ].map(({ href, label }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const active = pathname.startsWith(href);
           return (
             <Link
               key={href}
@@ -169,6 +162,9 @@ export function MobileNav() {
             </Link>
           );
         })}
+        <span className="ml-1">
+          <AccountMenu compact />
+        </span>
       </nav>
     </header>
   );

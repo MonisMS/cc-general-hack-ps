@@ -94,7 +94,12 @@ export async function llmJSON<T>(system: string, user: string, maxTokens = 4096)
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: sys }] },
         contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens },
+        generationConfig: {
+          responseMimeType: "application/json",
+          maxOutputTokens: maxTokens,
+          // Gemini 3 otherwise spends most of maxOutputTokens on hidden reasoning and truncates the JSON
+          ...(model.startsWith("gemini-3") ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
+        },
       }),
     });
     if (res.ok) {

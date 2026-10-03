@@ -1,228 +1,213 @@
-"use client";
+import Link from "next/link";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Bot,
+  Download,
+  Eye,
+  FileSpreadsheet,
+  Globe,
+  ListChecks,
+  MessageSquareText,
+  PenLine,
+  Quote,
+  ShieldCheck,
+  SlidersHorizontal,
+  Workflow,
+} from "lucide-react";
+import { Logo } from "@/components/Logo";
+import { DemoRun } from "@/components/landing/DemoRun";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowUp, Sparkles, Briefcase, Building2, Coins, CornerDownLeft, GitBranch, Handshake, Loader2, MessagesSquare } from "lucide-react";
-import { StatusIcon } from "@/components/StatusBadge";
-import { fetchJSON } from "@/components/utils";
-
-const EXAMPLES = [
-  { icon: Briefcase, tag: "Jobs", prompt: "Remote React developer jobs posted this week with salary info" },
-  { icon: GitBranch, tag: "Leads", prompt: "AI startups on GitHub building developer tools" },
-  { icon: Handshake, tag: "Sponsors", prompt: "Sponsor opportunities for a college hackathon in India" },
-  { icon: Coins, tag: "Market", prompt: "Top 20 cryptocurrencies by market cap" },
-  { icon: MessagesSquare, tag: "Research", prompt: "Hacker News discussions about AI coding agents this month" },
-  { icon: Building2, tag: "Companies", prompt: "Largest Indian IT services companies" },
+const STEPS = [
+  { n: "01", icon: PenLine, title: "Describe it", body: "Type the dataset you need in plain English, like you'd ask a colleague." },
+  { n: "02", icon: SlidersHorizontal, title: "Review the plan", body: "A planning agent proposes the details, sources and must-have conditions. Change anything." },
+  { n: "03", icon: Bot, title: "Agents collect & verify", body: "Sources are searched in parallel; every row is extracted, checked and de-duplicated live." },
+  { n: "04", icon: FileSpreadsheet, title: "Explore & export", body: "Search, filter, chart and question the table, then export to CSV or JSON." },
 ];
 
-export default function Home() {
-  const router = useRouter();
-  const [prompt, setPrompt] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const taRef = useRef<HTMLTextAreaElement>(null);
+const FEATURES = [
+  { icon: Quote, title: "Evidence on every row", body: "The exact sentence each row came from, matched word-for-word against the fetched page in code, not by the AI." },
+  { icon: ListChecks, title: "Every condition checked", body: "Each row is marked met, not met or not stated for every condition in your request, with a one-line reason." },
+  { icon: Workflow, title: "Mission control", body: "Watch the planner, each source, the extractor and the validator work live, with rows streaming into the table." },
+  { icon: MessageSquareText, title: "Ask your data", body: "Ask questions in plain English; answers cite the rows they used so you can check them." },
+  { icon: Eye, title: "Watch for changes", body: "Refresh a dataset or put it on a schedule. New rows are badged; removed ones are counted." },
+  { icon: Download, title: "Yours to keep", body: "Full history of every workflow and dataset, exportable as CSV or JSON with sources attached." },
+];
 
-  async function submit(text = prompt) {
-    const p = text.trim();
-    if (!p || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const j = await fetchJSON<{ id: string }>("/api/workflows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: p }),
-      });
-      router.push(`/workflows/${j.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-      setSubmitting(false);
-    }
-  }
+const HONEST = [
+  { icon: Globe, text: "Public APIs and the open web only, robots.txt respected" },
+  { icon: ShieldCheck, text: "Scraped text is treated as untrusted; internal addresses are never fetched" },
+  { icon: BadgeCheck, text: "Quotes are verified in code; condition checks are AI judgments and labelled as such" },
+];
 
+export default function Landing() {
   return (
-    <div className="ai-home relative overflow-hidden md:rounded-2xl">
-      <div className="ai-aura" />
-      <header className="relative flex h-12 items-center justify-between px-6 text-[13px] text-zinc-400">
-        <span>New request</span>
-        <span className="pill border border-white/15 text-zinc-200">
-          <Sparkles className="h-3.5 w-3.5 text-violet-400" /> 9 live sources
-        </span>
+    <div className="lp relative min-h-screen overflow-x-clip bg-backdrop text-zinc-200">
+      {/* ---------- Nav ---------- */}
+      <header className="sticky top-0 z-30 bg-backdrop/40 backdrop-blur-md">
+        <nav aria-label="Main" className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2">
+            <Logo size={22} />
+            <span className="text-[15px] font-semibold tracking-tight text-zinc-50">DataPilot</span>
+          </Link>
+          <ul className="glass hidden items-center gap-1 rounded-full px-2 py-1.5 text-[13px] md:flex">
+            {[
+              ["How it works", "#how"],
+              ["Features", "#features"],
+              ["Trust", "#trust"],
+            ].map(([label, href]) => (
+              <li key={href}>
+                <a href={href} className="rounded-full px-3.5 py-1.5 text-zinc-300 transition hover:bg-zinc-50/[0.06] hover:text-zinc-50">
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <span className="flex items-center gap-2">
+            <Link href="/auth/sign-in" className="hidden h-10 items-center rounded-xl px-3.5 text-[13.5px] text-zinc-300 transition hover:text-zinc-50 sm:inline-flex">
+              Sign in
+            </Link>
+            <Link href="/new" className="btn-glow inline-flex h-10 items-center rounded-xl px-4 text-[13.5px] font-medium">
+              Open app
+            </Link>
+          </span>
+        </nav>
       </header>
 
-      <div className="relative mx-auto max-w-[720px] px-4 pb-20 pt-16 text-center sm:px-6 md:pt-24">
-        <h1 className="text-[36px] font-medium leading-[1.08] tracking-[-0.03em] text-zinc-50 sm:text-[52px]">
-          Ask for data.
-          <br />
-          <span className="text-ai">Get a dataset.</span>
-        </h1>
-        <p className="mx-auto mt-5 max-w-[540px] text-[15.5px] leading-relaxed text-zinc-400">
-          Describe what you need in plain English. DataPilot plans the sources, collects from the live web, and
-          returns a clean table where every row links back to where it came from.
-        </p>
-
-        {/* Composer */}
-        <div className="ai-box mt-14 text-left">
-          <div className="ai-box-inner">
-            <textarea
-              ref={taRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                // Enter sends; Shift+Enter inserts a newline; ignore Enter while an IME is composing
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              rows={4}
-              autoFocus
-              placeholder="Ask for any dataset — e.g. SaaS companies in Bangalore hiring backend engineers"
-              className="block w-full resize-none bg-transparent px-5 pt-4 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-            />
-            <div className="flex items-center gap-2 px-4 pb-4 pt-2">
-              <span title="Sources are picked automatically" className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.07] text-zinc-300">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <span className="hidden h-9 items-center rounded-full bg-white/[0.07] px-3.5 text-[12.5px] text-zinc-300 sm:inline-flex">
-                Auto sources · dedupe · validate
-              </span>
-              <span className="ml-auto hidden items-center gap-1 text-[11.5px] text-zinc-500 sm:inline-flex">
-                <kbd className="rounded border border-white/10 px-1 font-mono text-[10.5px]">
-                  <CornerDownLeft className="inline h-2.5 w-2.5" />
-                </kbd>
-                to run
-              </span>
-              <button
-                onClick={() => submit()}
-                disabled={!prompt.trim() || submitting}
-                aria-label="Run workflow"
-                className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-medium text-zinc-950 shadow-[0_0_24px_-4px_rgba(255,255,255,0.45)] transition hover:shadow-[0_0_30px_-2px_rgba(255,255,255,0.6)] disabled:bg-white/10 disabled:text-zinc-500 disabled:shadow-none sm:ml-1"
-              >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-                {submitting ? "Starting" : "Run"}
-              </button>
-            </div>
-          </div>
+      {/* ---------- Hero ---------- */}
+      <section className="lp-hero grain relative -mt-16 overflow-hidden pt-16" aria-labelledby="lp-title">
+        <div className="lp-pillars-warm" aria-hidden />
+        <div className="lp-pillars-cool" aria-hidden />
+        <div className="lp-wordmark" aria-hidden>
+          DATAPILOT
         </div>
-        {error && <p className="mt-4 text-[13px] text-zinc-300">⚠ {error}</p>}
 
-        {/* Suggestions */}
-        <div className="mt-14 text-left">
-          <div className="mb-2 text-[12px] font-medium text-zinc-500">Try one of these</div>
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/30 backdrop-blur">
-            {EXAMPLES.map(({ icon: Icon, tag, prompt: p }) => (
-              <button
-                key={tag}
-                onClick={() => {
-                  setPrompt(p);
-                  taRef.current?.focus();
-                }}
-                className="group flex w-full items-center gap-3 border-b border-line px-3.5 py-2.5 text-left last:border-0 hover:bg-white/[0.03]"
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 group-hover:text-zinc-300" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-300 group-hover:text-zinc-100">{p}</span>
-                <span className="text-[11.5px] text-zinc-600">{tag}</span>
-              </button>
-            ))}
+        <div className="relative z-10 mx-auto max-w-[860px] px-4 pt-28 text-center sm:px-6 md:pt-36">
+          <span className="glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12.5px] text-zinc-300">
+            <span className="mc-dot h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+            Multi-agent data collection · every row source-backed
+          </span>
+          <h1 id="lp-title" className="mt-7 text-[42px] font-semibold leading-[1.04] tracking-[-0.035em] text-zinc-50 sm:text-[68px]">
+            Turn a sentence into
+            <br />a verified dataset
+          </h1>
+          <p className="mx-auto mt-6 max-w-[560px] text-[16px] leading-relaxed text-zinc-300">
+            Describe the data your business needs. AI agents plan the collection, gather it from permitted sources, and hand you a clean
+            table where every row proves where it came from.
+          </p>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/new" className="btn-glow inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[15px] font-medium">
+              Get started <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+            <a href="#how" className="glass inline-flex h-12 items-center rounded-xl px-5 text-[15px] text-zinc-200 transition hover:text-zinc-50">
+              See how it works
+            </a>
           </div>
         </div>
 
-        {/* Demo */}
-        <div className="mt-14 text-left">
-          <div className="mb-2 flex items-baseline justify-between">
-            <div className="text-[12px] font-medium text-zinc-500">How it works</div>
-            <div className="text-[11.5px] text-zinc-600">Sample run · replays automatically</div>
+        <div className="lp-horizon" aria-hidden>
+          <div className="lp-horizon-arc" />
+        </div>
+      </section>
+
+      {/* ---------- Product preview, rising out of the horizon ---------- */}
+      <section className="relative z-10 mx-auto -mt-[220px] max-w-[1040px] px-4 sm:px-6" aria-label="Sample run">
+        <div className="lp-frame">
+          <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+            <span className="flex gap-1.5" aria-hidden>
+              <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+              <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+              <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+            </span>
+            <span className="mx-auto rounded-md bg-zinc-50/[0.04] px-3 py-1 font-mono text-[11px] text-zinc-500">datapilot / workflows / remote-react-jobs</span>
+            <span className="hidden text-[11px] text-zinc-600 sm:inline">sample run</span>
           </div>
           <DemoRun />
         </div>
-      </div>
-    </div>
-  );
-}
+      </section>
 
-// ---------- Animated sample run (static data, loops) ----------
-
-const DEMO_PROMPT = "Remote React jobs with salary info";
-const DEMO_STEPS = [
-  { label: "Understand request", detail: "entity: job posting · filter: has salary" },
-  { label: "Plan workflow", detail: "8 fields · 3 sources" },
-  { label: "Collect", detail: "Remotive 16 · Arbeitnow 14 · RemoteOK 7" },
-  { label: "Extract & validate", detail: "37 items → 35 valid" },
-  { label: "Dedupe & store", detail: "2 duplicates merged" },
-];
-const DEMO_ROWS = [
-  ["Frontend Web Application Developer", "KoboToolbox", "$90k – $105k", "remotive.com"],
-  ["Senior Shopify Developer", "Sanctuary Computer", "$80k – $150k", "remotive.com"],
-  ["Senior Frontend Engineer", "Hotjar", "€70k – €85k", "remoteok.com"],
-  ["React Native Developer", "Toggl", "$75k – $95k", "arbeitnow.com"],
-  ["Full-stack Engineer (React/Node)", "Close", "$120k – $160k", "remoteok.com"],
-];
-
-function DemoRun() {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((x) => (x + 1) % 16), 700);
-    return () => clearInterval(t);
-  }, []);
-  const typed = DEMO_PROMPT.slice(0, Math.min(DEMO_PROMPT.length, tick * 9));
-  const step = tick - 3; // steps start after the prompt is typed
-  const rows = Math.max(0, Math.min(DEMO_ROWS.length, tick - 7));
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40 backdrop-blur">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-[13px]">
-        <span className="text-zinc-600">›</span>
-        <span className="text-zinc-200">{typed}</span>
-        {tick < 3 && <span className="animate-caret -ml-1 h-4 w-px bg-zinc-300" />}
-      </div>
-      <div className="grid md:grid-cols-[220px_1fr]">
-        <ol className="border-b border-line p-3 md:border-b-0 md:border-r">
-          {DEMO_STEPS.map((s, i) => {
-            const state = step > i ? "completed" : step === i ? "processing" : "queued";
-            return (
-              <li key={s.label} className="flex gap-2.5 rounded-md px-1.5 py-1.5">
-                <span className="mt-0.5">
-                  <StatusIcon status={state} size={13} />
-                </span>
-                <div className="min-w-0">
-                  <div className={`text-[12.5px] ${state === "queued" ? "text-zinc-600" : "text-zinc-200"}`}>{s.label}</div>
-                  {state !== "queued" && <div className="animate-fade-up truncate text-[11.5px] text-zinc-500">{s.detail}</div>}
-                </div>
-              </li>
-            );
-          })}
+      {/* ---------- How it works ---------- */}
+      <section id="how" className="relative mx-auto max-w-[1200px] scroll-mt-20 px-4 pt-32 sm:px-6" aria-labelledby="how-title">
+        <p className="lp-eyebrow">How it works</p>
+        <h2 id="how-title" className="lp-h2">
+          From a business question to a dataset you can trust
+        </h2>
+        <ol className="mt-12 grid gap-4 md:grid-cols-4">
+          {STEPS.map(({ n, icon: Icon, title, body }) => (
+            <li key={n} className="glass relative rounded-2xl p-5">
+              <span className="font-mono text-[12px] text-zinc-500">{n}</span>
+              <Icon className="mt-6 h-5 w-5 text-zinc-300" aria-hidden />
+              <h3 className="mt-3 text-[15px] font-medium text-zinc-50">{title}</h3>
+              <p className="mt-1.5 text-[13.5px] leading-relaxed text-zinc-400">{body}</p>
+            </li>
+          ))}
         </ol>
-        <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[460px] text-[12.5px]">
-            <thead>
-              <tr className="border-b border-line text-left text-[11.5px] text-zinc-500">
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 font-medium">Company</th>
-                <th className="px-3 py-2 font-medium">Salary</th>
-                <th className="px-3 py-2 font-medium">Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DEMO_ROWS.map((r, i) => (
-                <tr key={r[0]} className="h-[34px] border-b border-line last:border-0">
-                  {i < rows ? (
-                    r.map((c, j) => (
-                      <td key={j} className={`animate-fade-up truncate px-3 ${j === 0 ? "text-zinc-200" : j === 3 ? "text-violet-300" : "text-zinc-400"}`}>
-                        {c}
-                      </td>
-                    ))
-                  ) : (
-                    <td colSpan={4} className="px-3">
-                      <div className="h-2 w-2/3 rounded bg-white/[0.03]" />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      </section>
+
+      {/* ---------- Features ---------- */}
+      <section id="features" className="relative mx-auto max-w-[1200px] scroll-mt-20 px-4 pt-32 sm:px-6" aria-labelledby="features-title">
+        <div className="lp-side-glow" aria-hidden />
+        <p className="lp-eyebrow">Features</p>
+        <h2 id="features-title" className="lp-h2">
+          Built so you can check the AI&apos;s work
+        </h2>
+        <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map(({ icon: Icon, title, body }) => (
+            <li key={title} className="glass lp-card rounded-2xl p-6">
+              <span className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-50/10 bg-zinc-950/60">
+                <Icon className="h-[18px] w-[18px] text-zinc-200" aria-hidden />
+              </span>
+              <h3 className="mt-5 text-[16px] font-medium text-zinc-50">{title}</h3>
+              <p className="mt-2 text-[14px] leading-relaxed text-zinc-400">{body}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* ---------- Trust ---------- */}
+      <section id="trust" className="relative mx-auto max-w-[1200px] scroll-mt-20 px-4 pt-32 sm:px-6" aria-labelledby="trust-title">
+        <p className="lp-eyebrow">Trust</p>
+        <h2 id="trust-title" className="lp-h2">
+          What it does, and what it doesn&apos;t claim
+        </h2>
+        <ul className="glass mt-10 grid overflow-hidden rounded-2xl md:grid-cols-3">
+          {HONEST.map(({ icon: Icon, text }) => (
+            <li key={text} className="flex items-start gap-3 border-zinc-50/[0.06] p-6 [&:not(:last-child)]:border-b md:[&:not(:last-child)]:border-b-0 md:[&:not(:last-child)]:border-r">
+              <Icon className="mt-0.5 h-[18px] w-[18px] shrink-0 text-zinc-300" aria-hidden />
+              <p className="text-[14px] leading-relaxed text-zinc-300">{text}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* ---------- Closing CTA + footer ---------- */}
+      <footer className="lp-footer grain relative mt-32 overflow-hidden" aria-labelledby="cta-title">
+        <div className="relative z-10 mx-auto max-w-[760px] px-4 pt-24 text-center sm:px-6">
+          <h2 id="cta-title" className="text-[32px] font-semibold tracking-[-0.03em] text-zinc-50 sm:text-[44px]">
+            What data do you need today?
+          </h2>
+          <p className="mt-3 text-[15px] text-zinc-400">No scrapers to write. No spreadsheets to clean.</p>
+          <Link href="/new" className="btn-glow mt-8 inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[15px] font-medium">
+            Start a dataset <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
         </div>
-      </div>
+        <div className="lp-footer-mark" aria-hidden>
+          DATAPILOT
+        </div>
+        <div className="relative z-10 mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4 border-t border-zinc-50/[0.06] px-4 py-6 text-[13px] text-zinc-500 sm:px-6">
+          <span className="flex items-center gap-2">
+            <Logo size={18} /> DataPilot · Code Cubicle 6.0
+          </span>
+          <span className="flex gap-5">
+            <Link href="/new" className="hover:text-zinc-200">
+              New dataset
+            </Link>
+            <Link href="/workflows" className="hover:text-zinc-200">
+              Workflows
+            </Link>
+          </span>
+        </div>
+      </footer>
     </div>
   );
 }

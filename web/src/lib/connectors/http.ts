@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { assertPublicUrl } from "./safe-url";
 
 export const USER_AGENT = "DataPilotBot/1.0 (+hackathon prototype)";
 export const BROWSER_UA =
@@ -11,9 +12,12 @@ export interface FetchOpts {
   body?: string;
   timeoutMs?: number;
   userAgent?: string;
+  /** Untrusted URL: verify it (and every redirect hop) resolves to a public address before connecting. */
+  publicOnly?: boolean;
 }
 
-async function doFetch(url: string, opts: FetchOpts = {}, attempt = 0): Promise<Response> {
+async function doFetch(url: string, opts: FetchOpts = {}, attempt = 0, hops = 0): Promise<Response> {
+  if (opts.publicOnly) await assertPublicUrl(url);
   const res = await fetch(url, {
     method: opts.method ?? "GET",
     body: opts.body,
@@ -23,9 +27,15 @@ async function doFetch(url: string, opts: FetchOpts = {}, attempt = 0): Promise<
       "Api-User-Agent": USER_AGENT, // Wikimedia asks for this
       ...(opts.headers ?? {}),
     },
-    redirect: "follow",
+    // follow redirects ourselves for untrusted URLs so each hop is re-checked
+    redirect: opts.publicOnly ? "manual" : "follow",
     signal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
   });
+  if (opts.publicOnly && res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+    if (hops >= 5) throw new Error(`Too many redirects for ${url}`);
+    const next = new URL(res.headers.get("location")!, url).toString();
+    return withUrl(await doFetch(next, opts, attempt, hops + 1), next);
+  }
   if ((res.status === 429 || res.status === 503) && attempt < 1) {
     // One polite retry, honoring a short Retry-After.
     const ra = Number(res.headers.get("retry-after"));
@@ -35,6 +45,12 @@ async function doFetch(url: string, opts: FetchOpts = {}, attempt = 0): Promise<
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
   }
+  return res;
+}
+
+/** Manual redirects leave `res.url` at the first hop; remember where we actually ended up. */
+function withUrl(res: Response, finalUrl: string): Response {
+  if (!res.url || res.url !== finalUrl) Object.defineProperty(res, "url", { value: finalUrl });
   return res;
 }
 
@@ -175,7 +191,7 @@ export async function isAllowedByRobots(url: string): Promise<boolean> {
   const host = u.origin;
   let p = robotsCache.get(host);
   if (!p) {
-    p = fetchText(`${host}/robots.txt`, { timeoutMs: 6000 })
+    p = fetchText(`${host}/robots.txt`, { timeoutMs: 6000, publicOnly: true })
       .then(parseRobots)
       .catch(() => [] as string[]); // allow on failure
     robotsCache.set(host, p);

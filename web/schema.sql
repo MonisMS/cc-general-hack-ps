@@ -5,3 +5,7 @@ CREATE TABLE sources (id BIGSERIAL PRIMARY KEY, workflow_id TEXT NOT NULL REFERE
 CREATE INDEX ON workflow_events (workflow_id, id);
 CREATE INDEX ON records (workflow_id);
 CREATE INDEX ON sources (workflow_id);
+
+-- per-user ownership (Neon Auth user id); NULL = shared read-only example
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS owner_id TEXT;
+CREATE INDEX IF NOT EXISTS workflows_owner_created_idx ON workflows (owner_id, created_at DESC);

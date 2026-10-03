@@ -1,4 +1,4 @@
-import type { FieldSpec, WorkflowPlan } from "../types";
+import { CHECKS_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type FieldSpec, type WorkflowPlan } from "../types";
 import type { Extracted } from "./extract";
 
 export interface CleanRow {
@@ -64,11 +64,21 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
     for (const f of plan.fields) data[f.name] = cleanValue(f, r.data[f.name]);
 
     const missingRequired = plan.fields.some((f) => f.required && data[f.name] == null);
+    const violates = r.checks?.slice(0, plan.filters.length).some((c) => c === false) ?? false;
     const filled = plan.fields.filter((f) => data[f.name] != null).length / plan.fields.length;
-    if (missingRequired || filled < 0.25 || r.relevance < 0.3) {
+    if (missingRequired || violates || filled < 0.25 || r.relevance < 0.3) {
       invalid++;
       continue;
     }
+
+    const why = typeof r.why === "string" ? r.why.replace(/\s+/g, " ").trim().slice(0, 240) : "";
+    if (why) data[WHY_KEY] = why;
+    if (r.quote) {
+      data[QUOTE_KEY] = r.quote;
+      data[QUOTE_OK_KEY] = !!r.quoteVerified;
+    }
+    if (plan.filters.length && r.checks?.length)
+      data[CHECKS_KEY] = plan.filters.map((_, i) => (typeof r.checks![i] === "boolean" ? r.checks![i] : null));
 
     const keyFields = plan.dedupe_on.length ? plan.dedupe_on : [plan.fields[0].name];
     let key = keyFields.map((k) => norm(data[k])).join("|");

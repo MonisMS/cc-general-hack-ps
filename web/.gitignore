@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# evaluation run outputs (labels are worth committing deliberately, not by accident)
+/eval/out/

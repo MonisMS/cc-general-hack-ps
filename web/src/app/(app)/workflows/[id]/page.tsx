@@ -5,6 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Square,
+  Eye,
+  RefreshCw,
+  BarChart3,
+  ChevronDown,
   Copy,
   FileJson,
   FileSpreadsheet,
@@ -25,15 +30,20 @@ import { Pipeline } from "@/components/workflow/Pipeline";
 import { DataTable } from "@/components/workflow/DataTable";
 import { SourcesTable } from "@/components/workflow/SourcesTable";
 import { ActivityLog } from "@/components/workflow/ActivityLog";
+import { Insights } from "@/components/workflow/Insights";
+import { AskData } from "@/components/workflow/AskData";
+import { MissionControl } from "@/components/workflow/MissionControl";
+import { PlanEditor } from "@/components/workflow/PlanEditor";
 
 interface Detail {
   workflow: Workflow;
   events: WorkflowEvent[];
   sources: SourceRun[];
   record_count: number;
+  can_edit: boolean;
 }
 
-type Tab = "data" | "sources" | "log";
+type Tab = "data" | "insights" | "sources" | "log";
 
 export default function WorkflowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -43,7 +53,10 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   const [recordsLoaded, setRecordsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("data");
-  const [busy, setBusy] = useState<"rerun" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"rerun" | "refresh" | "delete" | "stop" | null>(null);
+  const [pollKey, setPollKey] = useState(0); // bump to resume polling after review/refresh
+  const [cited, setCited] = useState<number[] | null>(null);
+  const [showBuild, setShowBuild] = useState(false); // "How this dataset was built" (agents + steps), collapsed by default
   const lastRecordFetch = useRef(0);
 
   const loadRecords = useCallback(async () => {
@@ -85,7 +98,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         loadRecords();
         return;
       }
-      if (st === "processing" && Date.now() - lastRecordFetch.current > 4000) loadRecords();
+      if (st === "processing" && Date.now() - lastRecordFetch.current > 2000) loadRecords();
       timer = setTimeout(tick, 1500);
     };
     tick();
@@ -93,7 +106,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
       alive = false;
       clearTimeout(timer);
     };
-  }, [load, loadRecords]);
+  }, [load, loadRecords, pollKey]);
 
   async function rerun() {
     setBusy("rerun");
@@ -103,6 +116,44 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
     } catch (e) {
       alert(e instanceof Error ? e.message : "Rerun failed");
       setBusy(null);
+    }
+  }
+
+  async function refresh() {
+    setBusy("refresh");
+    try {
+      await fetchJSON(`/api/workflows/${id}/refresh`, { method: "POST" });
+      setCited(null);
+      setPollKey((k) => k + 1);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Refresh failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function stop() {
+    setBusy("stop");
+    try {
+      await fetchJSON(`/api/workflows/${id}/cancel`, { method: "POST" });
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't stop the workflow");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setWatch(hours: number) {
+    try {
+      await fetchJSON(`/api/workflows/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ watch_hours: hours }),
+      });
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't update watch");
     }
   }
 
@@ -122,11 +173,11 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
     return (
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         {error ? (
-          <div className="mx-auto mt-16 max-w-md rounded-xl border border-rose-500/20 bg-rose-500/5 p-6 text-center">
-            <XOctagon className="mx-auto h-7 w-7 text-rose-400" />
+          <div className="mx-auto mt-16 max-w-md rounded-xl border border-danger/20 bg-danger/5 p-6 text-center">
+            <XOctagon className="mx-auto h-7 w-7 text-danger" />
             <p className="mt-3 text-sm text-zinc-200">Couldn&apos;t load this workflow</p>
             <p className="mt-1 text-xs text-zinc-500">{error}</p>
-            <Link href="/workflows" className="mt-4 inline-block text-xs text-violet-300 hover:underline">
+            <Link href="/workflows" className="mt-4 inline-block text-xs text-accent-soft hover:underline">
               ← Back to workflows
             </Link>
           </div>
@@ -147,6 +198,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   }
 
   const w = detail.workflow;
+  const canEdit = detail.can_edit !== false; // shared examples are read-only; Rerun makes your own copy
   const s = w.stats ?? {};
   const recordCount = detail.record_count ?? w.record_count ?? records.length;
   const sourcesOk = s.sources_ok ?? detail.sources.filter((x) => x.status === "ok").length;
@@ -159,6 +211,29 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         <span className="text-zinc-700">›</span>
         <span className="min-w-0 truncate text-zinc-200">{w.title || w.plan?.title || w.prompt}</span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {w.plan && canEdit && (
+            <label
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12.5px] transition ${
+                w.plan.watch ? "border-accent/40 bg-accent/10 text-accent-ink" : "border-line-strong bg-raised text-zinc-200"
+              }`}
+              title="Automatically refresh this dataset and badge new rows"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <select
+                value={w.plan.watch?.every_hours ?? 0}
+                onChange={(e) => setWatch(Number(e.target.value))}
+                className="cursor-pointer bg-transparent focus:outline-none"
+                aria-label="Watch this dataset"
+              >
+                <option value={0} className="bg-zinc-900">Watch: off</option>
+                <option value={24} className="bg-zinc-900">Watch: daily</option>
+                <option value={168} className="bg-zinc-900">Watch: weekly</option>
+              </select>
+            </label>
+          )}
+          <Btn onClick={refresh} disabled={!canEdit || busy !== null || running || !w.plan || w.status === "review"}>
+            {busy === "refresh" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Refresh
+          </Btn>
           <Btn onClick={rerun} disabled={busy !== null}>
             {busy === "rerun" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Rerun
           </Btn>
@@ -168,7 +243,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
           <ExportLink href={`/api/workflows/${id}/export?format=json`} disabled={!recordCount}>
             <FileJson className="h-3.5 w-3.5" /> JSON
           </ExportLink>
-          <Btn onClick={remove} disabled={busy !== null} danger>
+          <Btn onClick={remove} disabled={!canEdit || busy !== null} danger>
             {busy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
           </Btn>
         </div>
@@ -179,6 +254,14 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-[22px] font-semibold text-zinc-100">{w.title || w.plan?.title || w.prompt}</h1>
           <StatusBadge status={w.status} />
+          {!canEdit && (
+            <span
+              className="rounded-full border border-line-strong px-2 py-0.5 text-[11.5px] text-zinc-400"
+              title="Shared example from before sign-in existed. Use Rerun to make your own editable copy."
+            >
+              Example · read-only
+            </span>
+          )}
         </div>
         <div className="mt-2 flex items-start gap-2 text-[13px] text-zinc-400">
           <span className="text-zinc-600">Prompt</span>
@@ -200,59 +283,150 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
               <StatusIcon status={w.status} size={13} />
               {detail.events.at(-1)?.message ?? "Starting workflow…"}
             </span>
-            <span className="font-mono text-[11.5px] tabular-nums text-zinc-500">{Math.round(w.progress)}%</span>
+            <span className="ml-auto flex items-center gap-3">
+              <span className="font-mono text-[11.5px] tabular-nums text-zinc-500">{Math.round(w.progress)}%</span>
+              <button
+                type="button"
+                onClick={stop}
+                disabled={!canEdit || busy !== null}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-[12.5px] text-zinc-200 transition hover:border-danger/40 hover:text-danger-soft disabled:opacity-40"
+              >
+                {busy === "stop" ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Square className="h-3 w-3" aria-hidden />} Stop
+              </button>
+            </span>
           </div>
           <ProgressBar value={w.progress} />
         </div>
       )}
 
-      {w.status === "failed" && (
+      {(w.status === "failed" || w.status === "cancelled") && (
         <div className="mt-5 flex items-start gap-3 rounded-lg border border-line bg-canvas px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+          {w.status === "cancelled" ? (
+            <Square className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+          )}
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium text-zinc-200">Workflow failed</p>
-            <p className="mt-0.5 break-words text-[12.5px] text-zinc-500">{w.error || "An unknown error occurred."}</p>
+            <p className="text-[13px] font-medium text-zinc-200">{w.status === "cancelled" ? "You stopped this workflow" : "Workflow failed"}</p>
+            <p className="mt-0.5 break-words text-[12.5px] text-zinc-500">
+              {w.status === "cancelled"
+                ? recordCount
+                  ? `The ${recordCount} rows collected before stopping are kept below.`
+                  : "Nothing was collected before it stopped."
+                : w.error || "An unknown error occurred."}
+            </p>
           </div>
-          <button onClick={rerun} className="h-7 shrink-0 rounded-md bg-zinc-100 px-2.5 text-[12.5px] font-medium text-zinc-950 hover:bg-white">
-            Try again
+          <button type="button" onClick={w.plan && canEdit ? refresh : rerun} className="h-7 shrink-0 rounded-md bg-zinc-50 px-2.5 text-[12.5px] font-medium text-zinc-950 hover:bg-zinc-200">
+            {w.status === "cancelled" ? "Resume" : "Try again"}
           </button>
         </div>
       )}
 
+      {w.status === "review" && w.plan && canEdit && <PlanEditor workflowId={id} plan={w.plan} onStarted={() => setPollKey((k) => k + 1)} />}
+
+
+      {w.status === "completed" && (s.runs ?? 1) > 1 && (
+        <div className="glass animate-fade-up mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-4 py-3 text-[13px]">
+          <span className="inline-flex items-center gap-2 font-medium text-zinc-100">
+            <RefreshCw className="h-3.5 w-3.5 text-accent-soft" /> What changed
+          </span>
+          <span className="text-accent-ink">+{s.added ?? 0} new</span>
+          <span className="text-zinc-400">{s.removed ?? 0} no longer listed</span>
+          <span className="text-zinc-400">{Math.max(0, (s.stored ?? 0) - (s.added ?? 0))} still there</span>
+          <span className="ml-auto text-[12px] text-zinc-500">
+            Refresh #{(s.runs ?? 1) - 1} · {timeAgo(w.finished_at)}
+            {w.plan?.watch && <> · auto-refreshing every {w.plan.watch.every_hours >= 168 ? "week" : "day"}</>}
+          </span>
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-lg border border-line md:grid-cols-4">
+{w.status !== "review" && (
+      <div className="glass mt-5 grid grid-cols-2 overflow-hidden rounded-lg md:grid-cols-4">
         <Stat label="Records" value={recordCount} sub={s.raw !== undefined ? `from ${s.raw} raw items` : undefined} />
         <Stat label="Sources" value={<>{sourcesOk}<span className="text-zinc-600"> / {sourcesOk + sourcesFailed}</span></>} sub={sourcesFailed ? `${sourcesFailed} failed` : "all responded"} />
         <Stat label="Duplicates merged" value={s.duplicates ?? 0} />
         <Stat label="Invalid dropped" value={s.invalid ?? 0} />
       </div>
+      )}
 
-      {/* Main grid */}
-      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <section className="h-fit rounded-lg border border-white/[0.06] bg-white/[0.012] p-4 xl:sticky xl:top-6">
-          <h2 className="mb-4 flex items-center gap-2 text-[13px] font-medium text-zinc-200">
-            <WorkflowIcon className="h-3.5 w-3.5 text-zinc-500" /> Workflow
-          </h2>
-          <Pipeline workflow={w} sources={detail.sources} />
-        </section>
-
-        <section className="min-w-0">
+      {/* Data first: tabs span the full width */}
+      <div className="mt-6">
+        <section className="min-w-0" aria-label="Dataset">
           <div className="mb-4 flex gap-1 border-b border-line">
             <TabBtn active={tab === "data"} onClick={() => setTab("data")} icon={Table2} label="Data" count={recordCount} />
+            <TabBtn active={tab === "insights"} onClick={() => setTab("insights")} icon={BarChart3} label="Insights" count={recordCount} />
             <TabBtn active={tab === "sources"} onClick={() => setTab("sources")} icon={Plug} label="Sources" count={detail.sources.length} />
             <TabBtn active={tab === "log"} onClick={() => setTab("log")} icon={ScrollText} label="Activity log" count={detail.events.length} />
           </div>
+          {tab === "data" && !!w.plan && w.status !== "review" && (records.length > 0 || !running) && (
+            <AskData workflowId={id} fields={w.plan.fields} entity={w.plan.entity} disabled={running || !records.length} onCite={setCited} />
+          )}
           {tab === "data" && (
             <DataTable
               records={records}
               fields={w.plan?.fields}
+              criteria={w.plan?.filters}
+              cited={cited}
+              newSince={(s.runs ?? 1) > 1 ? s.run_started_at : null}
+              onAddColumn={
+                !canEdit || running || !records.length
+                  ? undefined
+                  : async (question) => {
+                      await fetchJSON(`/api/workflows/${id}/columns`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ question }),
+                      });
+                      await Promise.all([load(), loadRecords()]);
+                    }
+              }
+              onClearCited={() => setCited(null)}
               loading={running || !recordsLoaded}
-              emptyHint={w.status === "failed" ? "The workflow failed before producing records. Check the activity log for details." : undefined}
+              emptyHint={
+                w.status === "failed"
+                  ? "The workflow failed before producing records. Check the activity log for details."
+                  : w.status === "review"
+                    ? "Approve the plan above and rows will stream in here."
+                    : undefined
+              }
             />
           )}
+          {tab === "insights" && <Insights records={records} fields={w.plan?.fields} criteria={w.plan?.filters} />}
           {tab === "sources" && <SourcesTable sources={detail.sources} running={running} />}
           {tab === "log" && <ActivityLog events={detail.events} running={running} />}
         </section>
+
+        {/* How it was built: agents + plan steps, on demand */}
+        {w.status !== "review" && (
+          <section className="mt-8" aria-labelledby="build-toggle">
+            <button
+              id="build-toggle"
+              type="button"
+              aria-expanded={showBuild}
+              aria-controls="build-panel"
+              onClick={() => setShowBuild((v) => !v)}
+              className="glass flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition hover:bg-zinc-50/[0.05]"
+            >
+              <WorkflowIcon className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-medium text-zinc-100">How this dataset was built</span>
+                <span className="block truncate text-[12px] text-zinc-500">
+                  {running ? "Agents are working. Open to watch them live." : "Mission control, the plan, and every source the agents used"}
+                </span>
+              </span>
+              <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform ${showBuild ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            {showBuild && (
+              <div id="build-panel" className="animate-fade-up">
+                <MissionControl workflow={w} sources={detail.sources} />
+                <div className="glass mt-4 rounded-lg p-4">
+                  <Pipeline workflow={w} sources={detail.sources} />
+                </div>
+              </div>
+            )}
+          </section>
+        )}
       </div>
       </div>
     </div>

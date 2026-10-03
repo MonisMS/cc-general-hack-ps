@@ -163,3 +163,29 @@ export function heuristicPlan(prompt: string): WorkflowPlan {
     planner: "heuristic",
   };
 }
+
+// ---------- User-edited plans (review step) ----------
+
+const FIELD_TYPES = new Set<FieldSpec["type"]>(["string", "number", "url", "date", "email", "list"]);
+
+/** Accept the user's edits to columns/sources/filters, keeping everything else from the stored plan. */
+export function applyPlanEdits(original: WorkflowPlan, edited: Partial<WorkflowPlan>): WorkflowPlan {
+  const fields = (edited.fields ?? original.fields)
+    .map((f) => ({
+      ...f,
+      name: String(f.name ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40),
+      type: FIELD_TYPES.has(f.type) ? f.type : "string",
+      description: String(f.description ?? "").slice(0, 200),
+    }))
+    .filter((f, i, all) => f.name && all.findIndex((g) => g.name === f.name) === i)
+    .slice(0, 14);
+  const sources = (edited.sources ?? original.sources)
+    .filter((s) => CONNECTOR_IDS.includes(s.connector) && String(s.query ?? "").trim())
+    .slice(0, 6)
+    .map((s) => ({ ...s, query: String(s.query).trim().slice(0, 300), limit: Math.min(Math.max(Number(s.limit) || 20, 3), 40) }));
+  if (!fields.length) throw new Error("Keep at least one column.");
+  if (!sources.length) throw new Error("Keep at least one source.");
+  const filters = (edited.filters ?? original.filters).map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 8);
+  const dedupe = original.dedupe_on.filter((d) => fields.some((f) => f.name === d));
+  return { ...original, fields, sources, filters, dedupe_on: dedupe.length ? dedupe : [fields[0].name] };
+}

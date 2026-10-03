@@ -3,10 +3,12 @@
 export type WorkflowStatus =
   | "queued"
   | "planning"
+  | "review" // plan ready, waiting for the user to edit/approve it
   | "collecting"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled"; // stopped by the user
 
 export type FieldType = "string" | "number" | "url" | "date" | "email" | "list";
 
@@ -15,6 +17,7 @@ export interface FieldSpec {
   type: FieldType;
   description: string;
   required?: boolean;
+  ai?: boolean; // added after collection via "Add AI column"; description holds the question
 }
 
 export type ConnectorId =
@@ -45,6 +48,7 @@ export interface WorkflowPlan {
   dedupe_on: string[]; // field names forming the dedupe key
   max_results: number;
   planner: "llm" | "heuristic";
+  watch?: { every_hours: number }; // refresh on a schedule (cron) and badge new rows
 }
 
 /** What every connector returns: one raw item per document/listing it found. */
@@ -52,7 +56,7 @@ export interface RawItem {
   source: ConnectorId;
   url: string; // canonical URL for traceability
   title: string;
-  text: string; // body/snippet for extraction (trim to ~4k chars)
+  text: string; // body/snippet for extraction (up to ~20k chars; extraction keeps the relevant passages)
   /** Already-structured fields when the source is an API (jobs, repos...). */
   fields?: Record<string, unknown>;
   published_at?: string;
@@ -79,12 +83,17 @@ export interface Workflow {
     stored?: number;
     sources_ok?: number;
     sources_failed?: number;
+    runs?: number; // 1 = first collection; >1 = refreshed
+    run_started_at?: string; // rows first seen after this are NEW
+    added?: number;
+    removed?: number;
   };
   error: string | null;
   created_at: string;
   updated_at: string;
   finished_at: string | null;
   record_count?: number;
+  owner_id?: string | null; // null = shared read-only example
 }
 
 export interface WorkflowEvent {
@@ -94,6 +103,12 @@ export interface WorkflowEvent {
   message: string;
   created_at: string;
 }
+
+/** Reserved keys in record.data holding extraction metadata (not schema fields). */
+export const WHY_KEY = "_why"; // string: one-line evidence for the match
+export const CHECKS_KEY = "_checks"; // (boolean | null)[] aligned with plan.filters
+export const QUOTE_KEY = "_quote"; // verbatim excerpt from the source backing the row
+export const QUOTE_OK_KEY = "_quote_verified"; // true when the excerpt was found in the fetched text
 
 export interface DataRecord {
   id: number;

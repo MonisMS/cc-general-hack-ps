@@ -49,7 +49,7 @@ export const CONNECTORS: Record<ConnectorId, Connector> = {
   web_search: {
     label: "Web search",
     description:
-      "General web search (DuckDuckGo, falling back to Bing) that also fetches and extracts readable text from the top result pages. Best for anything not covered by a dedicated API: companies, events, sponsors, conferences, product lists, news, pricing. Query: a concise search-engine query, e.g. \"AI startups hiring in Bangalore 2026\", \"KubeCon 2026 sponsors\".",
+      "General web search (Firecrawl when configured, otherwise DuckDuckGo/Bing) that also fetches and extracts readable text from the top result pages. Best for anything not covered by a dedicated API: companies, events, sponsors, conferences, product lists, news, pricing. Query: a concise search-engine query, e.g. \"AI startups hiring in Bangalore 2026\", \"KubeCon 2026 sponsors\".",
     run: webSearch,
   },
   url_fetch: {

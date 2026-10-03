@@ -1,0 +1,7 @@
+[
+  { "id": "jobs", "prompt": "Remote React developer jobs with salary info" },
+  { "id": "repos", "prompt": "Open-source vector databases on GitHub" },
+  { "id": "crypto", "prompt": "Top 15 cryptocurrencies by market cap" },
+  { "id": "hn", "prompt": "Hacker News discussions about AI coding agents" },
+  { "id": "companies", "prompt": "Largest Indian IT services companies with headquarters" }
+]

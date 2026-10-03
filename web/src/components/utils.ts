@@ -31,11 +31,28 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 export function isRunning(status: WorkflowStatus): boolean {
-  return status !== "completed" && status !== "failed";
+  return status !== "completed" && status !== "failed" && status !== "review" && status !== "cancelled";
 }
 
+const WORDS: Record<string, string> = { url: "link", usd: "(USD)", pct: "%", id: "ID", api: "API", ai: "AI", hn: "HN", github: "GitHub" };
+
+/** snake_case field name → plain-English label: "posted_at" → "Posted", "apply_url" → "Apply link", "price_usd" → "Price (USD)". */
 export function humanize(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const words = key.split(/[_\s]+/).filter(Boolean);
+  if (words.length > 1 && words.at(-1) === "at") words.pop(); // posted_at → posted
+  const out = words.map((w) => WORDS[w.toLowerCase()] ?? w.toLowerCase()).join(" ").replace(/ %/g, " %");
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+/** Guess a column's type from its plain-English name, so users never have to pick "string" vs "url". */
+export function inferFieldType(label: string): "string" | "number" | "url" | "date" | "email" | "list" {
+  const l = label.toLowerCase();
+  if (/\b(e-?mail)\b/.test(l)) return "email";
+  if (/\b(url|link|website|site|homepage|profile)\b/.test(l)) return "url";
+  if (/\b(date|posted|founded|published|deadline|when|year)\b/.test(l)) return "date";
+  if (/\b(tags|skills|topics|categories|technologies|stack|list)\b/.test(l)) return "list";
+  if (/\b(count|number|stars|rank|score|price|revenue|funding amount|employees|followers|rating|points|cap|volume)\b/.test(l)) return "number";
+  return "string";
 }
 
 export function hostOf(url: string | null | undefined): string {

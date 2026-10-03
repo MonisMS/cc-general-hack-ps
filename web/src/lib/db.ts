@@ -25,7 +25,7 @@ export async function setStatus(
   progress: number,
   extra: { plan?: unknown; title?: string; stats?: unknown; error?: string } = {},
 ) {
-  const done = status === "completed" || status === "failed";
+  const done = status === "completed" || status === "failed" || status === "cancelled";
   await sql`UPDATE workflows SET
       status = ${status},
       progress = ${progress},
@@ -35,5 +35,28 @@ export async function setStatus(
       error = ${extra.error ?? null},
       updated_at = now(),
       finished_at = ${done ? new Date().toISOString() : null}
-    WHERE id = ${workflowId}`;
+    WHERE id = ${workflowId} AND (status <> 'cancelled' OR ${status} = 'queued')`;
+}
+
+export class CancelledError extends Error {
+  constructor() {
+    super("Stopped by user");
+  }
+}
+
+/**
+ * Throw if the user stopped this workflow, or (with `runStartedAt`) if a newer run of it has started since,
+ * e.g. Resume pressed while a stopped run was still finishing a step. Checked between stages and batches.
+ */
+export async function assertNotCancelled(workflowId: string, runStartedAt?: string) {
+  const [w] = await sql`SELECT status, stats->>'run_started_at' AS run FROM workflows WHERE id = ${workflowId}`;
+  if (!w || w.status === "cancelled" || (runStartedAt && w.run && w.run !== runStartedAt)) throw new CancelledError();
+}
+
+const RUNNING = ["queued", "planning", "collecting", "processing"];
+/** Runs execute inside a serverless request; if it dies, nothing else would ever finish them. */
+export async function failStuckWorkflows(minutes = 8) {
+  await sql`UPDATE workflows SET status = 'failed', progress = 100, finished_at = now(), updated_at = now(),
+      error = 'This run was interrupted (the server restarted or timed out). Use Rerun or Refresh to try again.'
+    WHERE status = ANY(${RUNNING}) AND updated_at < now() - make_interval(mins => ${minutes})`;
 }

@@ -30,7 +30,7 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
             {sources.map((s) => (
               <tr key={s.id} className="border-b border-white/5 align-top last:border-0">
                 <td className="whitespace-nowrap px-3 py-2.5">
-                  <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-300 ring-1 ring-sky-500/20">
+                  <span className="rounded bg-zinc-50/[0.04] px-1.5 py-0.5 text-[11px] font-medium text-zinc-300 ring-1 ring-line-strong">
                     {connectorLabel(s.connector)}
                   </span>
                 </td>
@@ -38,7 +38,7 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
                   <div className="truncate font-mono text-xs text-zinc-300" title={s.query ?? ""}>
                     {s.query || "—"}
                   </div>
-                  {s.error && <div className="mt-1 text-xs text-rose-400">{s.error}</div>}
+                  {s.error && <div className="mt-1 text-xs text-danger">{s.error}</div>}
                 </td>
                 <td className="px-3 py-2.5">
                   <StatusBadge status={s.status} />
@@ -54,7 +54,7 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
                       target="_blank"
                       rel="noreferrer"
                       title={s.url}
-                      className="inline-flex max-w-full items-center gap-1 text-xs text-violet-300 hover:underline"
+                      className="inline-flex max-w-full items-center gap-1 text-xs text-accent-soft hover:underline"
                     >
                       <span className="truncate">{hostOf(s.url)}</span>
                       <ExternalLink className="h-3 w-3 shrink-0" />

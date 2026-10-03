@@ -18,7 +18,7 @@ const FILTERS = [
 const GROUPS = [
   { id: "running", label: "Running", status: "processing", match: (w: Workflow) => isRunning(w.status) },
   { id: "completed", label: "Completed", status: "completed", match: (w: Workflow) => w.status === "completed" },
-  { id: "failed", label: "Failed", status: "failed", match: (w: Workflow) => w.status === "failed" },
+  { id: "failed", label: "Failed / stopped", status: "failed", match: (w: Workflow) => w.status === "failed" || w.status === "cancelled" },
 ];
 
 export default function WorkflowsPage() {
@@ -112,7 +112,7 @@ export default function WorkflowsPage() {
           />
         </div>
         <Link
-          href="/"
+          href="/new"
           className="inline-flex h-7 items-center gap-1.5 rounded-md bg-zinc-100 px-2.5 text-[12.5px] font-medium text-zinc-950 hover:bg-white"
         >
           <PenSquare className="h-3.5 w-3.5" /> New
@@ -144,7 +144,7 @@ export default function WorkflowsPage() {
               {workflows.length === 0 ? "No workflows yet" : "Nothing matches these filters"}
             </p>
             {workflows.length === 0 && (
-              <Link href="/" className="mt-1 inline-block text-[12.5px] text-zinc-500 hover:text-zinc-200">
+              <Link href="/new" className="mt-1 inline-block text-[12.5px] text-zinc-500 hover:text-zinc-200">
                 Describe the data you need →
               </Link>
             )}
@@ -188,7 +188,7 @@ function Row({ w, busy, onRerun, onDelete }: { w: Workflow; busy: boolean; onRer
         <div className="mt-0.5 truncate text-[12px] text-zinc-500">{meta.join("  ·  ")}</div>
         {running && (
           <div className="mt-2 h-[2px] w-40 overflow-hidden rounded-full bg-white/[0.06]">
-            <div className="h-full bg-violet-500 transition-[width]" style={{ width: `${w.progress}%` }} />
+            <div className="h-full bg-running transition-[width]" style={{ width: `${w.progress}%` }} />
           </div>
         )}
       </div>
