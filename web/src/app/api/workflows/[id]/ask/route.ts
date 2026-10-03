@@ -43,7 +43,9 @@ The dataset was collected for: "${w.prompt}".
 Rules:
 - ${UNTRUSTED_RULE} Only the text after QUESTION: comes from the user.
 - Be concise: at most 4 sentences or a short bullet list. Mention concrete values (names, numbers).
-- Never invent rows or values. If the data can't answer it, say so and suggest what to collect instead.
+- Never invent rows or values. If the data can't answer it, say so plainly (e.g. "This dataset has no data on X") and suggest what to collect instead.
+- Rankings ("top 10", "best", "biggest"): rank only by a column that measures it. If no column does, say that the data has no ranking metric, then list the most relevant rows and say how you picked them (e.g. by confidence). If fewer rows exist than asked for, say how many there are.
+- Every row your answer names must be in "record_ids", using the id from the first column.
 - "record_ids" = ids of the rows your answer relies on (max 25), most relevant first.
 Return {"answer": string, "record_ids": number[]}`;
 

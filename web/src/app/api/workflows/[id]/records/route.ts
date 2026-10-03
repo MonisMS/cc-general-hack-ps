@@ -10,5 +10,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (access instanceof Response) return access;
   const records = await sql`SELECT id, data, source_name, source_url, confidence, fetched_at
     FROM records WHERE workflow_id = ${id} ORDER BY confidence DESC, id`;
-  return NextResponse.json({ records });
+  // BIGSERIAL ids arrive as strings from the driver; send numbers so they match the ids "Ask" answers cite
+  return NextResponse.json({ records: records.map((r) => ({ ...r, id: Number(r.id) })) });
 }

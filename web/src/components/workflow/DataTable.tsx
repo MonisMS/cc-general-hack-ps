@@ -77,8 +77,8 @@ export function DataTable({
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (cited?.length) {
-      const byId = new Map(records.map((r) => [r.id, r]));
-      return cited.map((id) => byId.get(id)).filter((r): r is DataRecord => !!r);
+      const byId = new Map(records.map((r) => [Number(r.id), r]));
+      return cited.map((id) => byId.get(Number(id))).filter((r): r is DataRecord => !!r);
     }
     let out = records.filter((r) => {
       if (onlyNew && newCount && !isNew(r)) return false;
@@ -257,7 +257,8 @@ export function DataTable({
 
       {!!cited?.length && (
         <div className="glass mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] text-zinc-300">
-          <Sparkles className="h-3.5 w-3.5" /> Showing the {filtered.length} rows cited by the answer
+          <Sparkles className="h-3.5 w-3.5" />{" "}
+          {filtered.length ? `Showing the ${filtered.length} rows cited by the answer` : "The cited rows are no longer in this dataset (it may have been refreshed)"}
           <button onClick={onClearCited} className="ml-auto inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-100">
             <X className="h-3.5 w-3.5" /> Show all
           </button>
