@@ -160,7 +160,7 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     await logEvent(id, "extract", `Extracted ${rows.length} candidate rows (${mode} extraction)`, "success");
 
     // Validate + dedupe
-    let { clean, invalid, duplicates, reasons } = validateAndDedupe(work, rows);
+    let { clean, invalid, duplicates, reasons, relaxed } = validateAndDedupe(work, rows);
 
     // Thin result: one extra web search phrased from the dataset title, then validate everything again
     const want = Math.min(10, work.max_results);
@@ -177,14 +177,16 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
           if (note) await logEvent(id, "extract", note, "warn");
         });
         rows.push(...more.rows);
-        ({ clean, invalid, duplicates, reasons } = validateAndDedupe(work, rows));
+        ({ clean, invalid, duplicates, reasons, relaxed } = validateAndDedupe(work, rows));
         await logEvent(id, "extract", `Extra search added ${more.rows.length} candidate rows`, "success");
       }
     }
     stats.extracted = rows.length;
     Object.assign(stats, { invalid, duplicates, valid: clean.length, dropped: reasons });
     const drops = describeDrops(reasons, identityField(work));
-    await logEvent(id, "validate", `Validation: kept ${clean.length}, dropped ${invalid}${drops ? ` (${drops})` : ""}, merged ${duplicates} duplicates`);
+    if (relaxed)
+      await logEvent(id, "validate", `No row met every filter (${drops}), so showing the ${clean.length} closest matches with the failed filter marked ✗`, "warn");
+    else await logEvent(id, "validate", `Validation: kept ${clean.length}, dropped ${invalid}${drops ? ` (${drops})` : ""}, merged ${duplicates} duplicates`);
 
     // Store the final snapshot; live batches already inserted most rows
     await sync;

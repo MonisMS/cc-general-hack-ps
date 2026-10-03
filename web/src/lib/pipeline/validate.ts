@@ -58,7 +58,17 @@ const norm = (v: unknown) =>
 export const identityField = (plan: WorkflowPlan) =>
   (plan.fields.find((f) => f.required && f.type === "string") ?? plan.fields.find((f) => f.type === "string") ?? plan.fields[0]).name;
 
-export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
+/**
+ * With `soft`, filter violations don't drop rows (they stay marked ✗). Used automatically when strict filtering
+ * would leave nothing, so a too-tight filter shows the closest matches instead of an empty table.
+ */
+export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[], soft = false): {
+  clean: CleanRow[];
+  invalid: number;
+  duplicates: number;
+  reasons: DropReasons;
+  relaxed: boolean;
+} {
   const out = new Map<string, CleanRow>();
   let invalid = 0;
   let duplicates = 0;
@@ -75,7 +85,7 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
     if (data[idField] == null) reasons.no_name++;
     else if (r.relevance < 0.3) reasons.irrelevant++;
     else if (failed.length) for (const f of failed) reasons.failed_filters[f] = (reasons.failed_filters[f] ?? 0) + 1;
-    if (data[idField] == null || r.relevance < 0.3 || failed.length) {
+    if (data[idField] == null || r.relevance < 0.3 || (failed.length && !soft)) {
       invalid++;
       continue;
     }
@@ -112,5 +122,7 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]) {
   }
 
   const clean = [...out.values()].sort((a, b) => b.confidence - a.confidence).slice(0, plan.max_results);
-  return { clean, invalid, duplicates, reasons };
+  if (!soft && !clean.length && Object.keys(reasons.failed_filters).length)
+    return { ...validateAndDedupe(plan, rows, true), reasons, relaxed: true };
+  return { clean, invalid, duplicates, reasons, relaxed: false };
 }
