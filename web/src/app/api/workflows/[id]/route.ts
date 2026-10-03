@@ -13,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!workflow) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const [events, sources, [{ count }]] = await Promise.all([
     sql`SELECT id, step, level, message, created_at FROM workflow_events WHERE workflow_id = ${id} ORDER BY id`,
-    sql`SELECT id, connector, query, url, status, items, duration_ms, error FROM sources WHERE workflow_id = ${id} ORDER BY id`,
+    sql`SELECT id, connector, query, url, status, items, duration_ms, error, pages FROM sources WHERE workflow_id = ${id} ORDER BY id`,
     sql`SELECT count(*)::int AS count FROM records WHERE workflow_id = ${id}`,
   ]);
   const can_edit = workflow.owner_id === access.user.id; // shared examples (no owner) are read-only

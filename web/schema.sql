@@ -9,3 +9,6 @@ CREATE INDEX ON sources (workflow_id);
 -- per-user ownership (Neon Auth user id); NULL = shared read-only example
 ALTER TABLE workflows ADD COLUMN IF NOT EXISTS owner_id TEXT;
 CREATE INDEX IF NOT EXISTS workflows_owner_created_idx ON workflows (owner_id, created_at DESC);
+
+-- result page links per source step, shown in the Sources tab
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS pages JSONB;

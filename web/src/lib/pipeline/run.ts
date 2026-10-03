@@ -41,8 +41,9 @@ async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
     const r = await c.run(step.query, step.limit ?? 20);
     const ms = Date.now() - t0;
     // "empty" rather than "ok" so a search that silently found nothing stands out in the Sources tab
-    await sql`INSERT INTO sources (workflow_id, connector, query, url, status, items, duration_ms)
-              VALUES (${id}, ${step.connector}, ${step.query}, ${r.url ?? null}, ${r.items.length ? "ok" : "empty"}, ${r.items.length}, ${ms})`;
+    const pages = [...new Set(r.items.map((it) => it.url).filter((u) => /^https?:\/\//.test(u)))].slice(0, 40);
+    await sql`INSERT INTO sources (workflow_id, connector, query, url, status, items, duration_ms, pages)
+              VALUES (${id}, ${step.connector}, ${step.query}, ${r.url ?? null}, ${r.items.length ? "ok" : "empty"}, ${r.items.length}, ${ms}, ${JSON.stringify(pages)}::jsonb)`;
     if (r.items.length && r.items.every((it) => it.source === "wikipedia") && step.connector === "web_search")
       await logEvent(id, "collect", `Web search engines returned nothing for "${step.query}", so these results come from Wikipedia search and may only mention the topic`, "warn");
     await logEvent(id, "collect", r.items.length ? `✓ ${c.label} returned ${r.items.length} items in ${(ms / 1000).toFixed(1)}s` : `${c.label} found nothing for "${step.query}"`, r.items.length ? "success" : "warn");

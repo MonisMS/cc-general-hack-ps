@@ -23,7 +23,7 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
               <th className="px-3 py-2.5 font-medium">Status</th>
               <th className="px-3 py-2.5 text-right font-medium">Items</th>
               <th className="px-3 py-2.5 text-right font-medium">Duration</th>
-              <th className="px-3 py-2.5 font-medium">Request</th>
+              <th className="px-3 py-2.5 font-medium">Pages found</th>
             </tr>
           </thead>
           <tbody>
@@ -47,27 +47,51 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-400">
                   {s.duration_ms == null ? "—" : s.duration_ms < 1000 ? `${s.duration_ms} ms` : `${(s.duration_ms / 1000).toFixed(1)} s`}
                 </td>
-                <td className="max-w-[220px] px-3 py-2.5">
-                  {s.url ? (
-                    <a
-                      href={s.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={s.url}
-                      className="inline-flex max-w-full items-center gap-1 text-xs text-accent-soft hover:underline"
-                    >
-                      <span className="truncate">{hostOf(s.url)}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0" />
-                    </a>
-                  ) : (
-                    <span className="text-zinc-600">—</span>
-                  )}
+                <td className="max-w-[260px] px-3 py-2.5">
+                  <Pages source={s} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function PageLink({ url }: { url: string }) {
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title={url} className="flex max-w-full items-center gap-1 text-xs text-accent-soft hover:underline">
+      <span className="truncate">{hostOf(url)}</span>
+      <ExternalLink className="h-3 w-3 shrink-0" />
+    </a>
+  );
+}
+
+/** The actual pages a step returned; older runs only stored the request URL, which is shown for API sources. */
+function Pages({ source: s }: { source: SourceRun }) {
+  const pages = s.pages ?? [];
+  if (!pages.length) {
+    // search steps from before page links were stored: their request URL is a search page, not a result
+    if (!s.url || s.connector === "web_search") return <span className="text-zinc-600">—</span>;
+    return <PageLink url={s.url} />;
+  }
+  const shown = pages.slice(0, 3);
+  return (
+    <div className="space-y-0.5">
+      {shown.map((u) => (
+        <PageLink key={u} url={u} />
+      ))}
+      {pages.length > shown.length && (
+        <details className="group">
+          <summary className="cursor-pointer list-none text-xs text-zinc-500 hover:text-zinc-300">+{pages.length - shown.length} more</summary>
+          <div className="mt-0.5 space-y-0.5">
+            {pages.slice(shown.length).map((u) => (
+              <PageLink key={u} url={u} />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

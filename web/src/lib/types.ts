@@ -136,4 +136,5 @@ export interface SourceRun {
   items: number;
   duration_ms: number | null;
   error: string | null;
+  pages?: string[] | null; // links to the items this step returned
 }
