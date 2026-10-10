@@ -284,7 +284,14 @@ export function DataTable({
                 <tr
                   key={r.id}
                   onClick={() => setOpen(r)}
-                  className="animate-fade-up cursor-pointer border-b border-white/5 text-zinc-300 transition last:border-0 hover:bg-zinc-50/[0.03]"
+                  // rows are the only way into the record drawer, so they must work from the keyboard too
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                    e.preventDefault();
+                    setOpen(r);
+                  }}
+                  className="animate-fade-up cursor-pointer border-b border-white/5 text-zinc-300 transition last:border-0 hover:bg-zinc-50/[0.03] focus-visible:bg-zinc-50/[0.05] focus-visible:outline-offset-[-2px]"
                 >
                   <td className="px-3 py-2.5 text-[11px] tabular-nums text-zinc-600">
                     {isNew(r) ? (

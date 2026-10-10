@@ -192,15 +192,33 @@ function Row({ w, busy, onRerun, onDelete }: { w: Workflow; busy: boolean; onRer
           </div>
         )}
       </div>
-      <span className="text-[12px] text-zinc-600 group-hover:hidden" title={formatDateTime(w.created_at)}>
+      {/* actions replace the timestamp on hover or keyboard focus; touch screens (no hover) always show them */}
+      <span
+        className="text-[12px] text-zinc-600 group-focus-within:hidden group-hover:hidden [@media(hover:none)]:hidden"
+        title={formatDateTime(w.created_at)}
+      >
         {timeAgo(w.created_at)}
       </span>
-      <div className="relative z-10 hidden gap-0.5 group-hover:flex">
-        <button title="Rerun" onClick={onRerun} disabled={busy} className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+      <div className="relative z-10 hidden gap-0.5 group-focus-within:flex group-hover:flex [@media(hover:none)]:flex">
+        <button
+          type="button"
+          title="Rerun"
+          aria-label={`Rerun ${w.title || w.prompt}`}
+          onClick={onRerun}
+          disabled={busy}
+          className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCw className="h-3.5 w-3.5" aria-hidden />}
         </button>
-        <button title="Delete" onClick={onDelete} disabled={busy} className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200">
-          <Trash2 className="h-3.5 w-3.5" />
+        <button
+          type="button"
+          title="Delete"
+          aria-label={`Delete ${w.title || w.prompt}`}
+          onClick={onDelete}
+          disabled={busy}
+          className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
     </div>

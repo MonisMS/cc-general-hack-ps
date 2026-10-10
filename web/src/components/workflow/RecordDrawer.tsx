@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Clock, ExternalLink, Link2, X } from "lucide-react";
 import type { DataRecord, FieldSpec } from "@/lib/types";
 import { connectorLabel, formatDateTime, hostOf, humanize } from "@/components/utils";
@@ -18,11 +18,43 @@ export function RecordDrawer({
   criteria: string[];
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const isOpen = !!record;
+
+  // Modal behaviour: focus moves in, Tab stays inside, Escape closes, the page behind can't scroll,
+  // and focus goes back to whatever opened the drawer (the table row).
   useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+    if (!isOpen) return;
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return onClose();
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), summary, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      opener?.focus?.();
+    };
+  }, [isOpen, onClose]);
 
   if (!record) return null;
   const known = new Set(fields.map((f) => f.name));
@@ -34,21 +66,33 @@ export function RecordDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="animate-slide-in relative flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-zinc-950 shadow-2xl">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <aside
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="record-drawer-title"
+        className="animate-slide-in relative flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-zinc-950 shadow-2xl"
+      >
         <div className="flex items-start justify-between gap-3 border-b border-white/5 px-5 py-4">
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wider text-zinc-500">Record #{record.id}</div>
-            <div className="mt-0.5 truncate text-base font-medium text-white">
+            <h2 id="record-drawer-title" className="mt-0.5 truncate text-base font-medium text-white">
               {String(record.data[fields[0]?.name] ?? record.data.name ?? record.data.title ?? "Record details")}
-            </div>
+            </h2>
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white" aria-label="Close">
-            <X className="h-4 w-4" />
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white"
+            aria-label="Close record details"
+          >
+            <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           <div className="glass rounded-xl p-3.5">
             <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
               <Link2 className="h-3.5 w-3.5" /> Traceability

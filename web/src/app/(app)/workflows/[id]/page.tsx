@@ -207,10 +207,11 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   return (
     <div>
       <header className="flex h-11 items-center gap-2 border-b border-line px-5 text-[13px]">
-        <Link href="/workflows" className="text-zinc-500 hover:text-zinc-200">Workflows</Link>
-        <span className="text-zinc-700">›</span>
-        <span className="min-w-0 truncate text-zinc-200">{w.title || w.plan?.title || w.prompt}</span>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {/* on phones the breadcrumb gives way to the actions (MobileNav already links to Workflows) */}
+        <Link href="/workflows" className="hidden text-zinc-500 hover:text-zinc-200 sm:inline">Workflows</Link>
+        <span className="hidden text-zinc-700 sm:inline" aria-hidden>›</span>
+        <span className="hidden min-w-0 truncate text-zinc-200 sm:inline">{w.title || w.plan?.title || w.prompt}</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
           {w.plan && canEdit && (
             <label
               className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12.5px] transition ${
@@ -218,11 +219,11 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
               }`}
               title="Automatically refresh this dataset and badge new rows"
             >
-              <Eye className="h-3.5 w-3.5" />
+              <Eye className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
               <select
                 value={w.plan.watch?.every_hours ?? 0}
                 onChange={(e) => setWatch(Number(e.target.value))}
-                className="cursor-pointer bg-transparent focus:outline-none"
+                className="cursor-pointer bg-transparent"
                 aria-label="Watch this dataset"
               >
                 <option value={0} className="bg-zinc-900">Watch: off</option>
@@ -231,20 +232,20 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
               </select>
             </label>
           )}
-          <Btn onClick={refresh} disabled={!canEdit || busy !== null || running || !w.plan || w.status === "review"}>
-            {busy === "refresh" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Refresh
+          <Btn label="Refresh" onClick={refresh} disabled={!canEdit || busy !== null || running || !w.plan || w.status === "review"}>
+            {busy === "refresh" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden />}
           </Btn>
-          <Btn onClick={rerun} disabled={busy !== null}>
-            {busy === "rerun" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Rerun
+          <Btn label="Rerun" onClick={rerun} disabled={busy !== null}>
+            {busy === "rerun" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCw className="h-3.5 w-3.5" aria-hidden />}
           </Btn>
-          <ExportLink href={`/api/workflows/${id}/export?format=csv`} disabled={!recordCount}>
-            <FileSpreadsheet className="h-3.5 w-3.5" /> CSV
+          <ExportLink label="CSV" title="Export as CSV" href={`/api/workflows/${id}/export?format=csv`} disabled={!recordCount}>
+            <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
           </ExportLink>
-          <ExportLink href={`/api/workflows/${id}/export?format=json`} disabled={!recordCount}>
-            <FileJson className="h-3.5 w-3.5" /> JSON
+          <ExportLink label="JSON" title="Export as JSON" href={`/api/workflows/${id}/export?format=json`} disabled={!recordCount}>
+            <FileJson className="h-3.5 w-3.5" aria-hidden />
           </ExportLink>
-          <Btn onClick={remove} disabled={!canEdit || busy !== null} danger>
-            {busy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          <Btn label="Delete workflow" iconOnly onClick={remove} disabled={!canEdit || busy !== null} danger>
+            {busy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}
           </Btn>
         </div>
       </header>
@@ -486,36 +487,61 @@ function TabBtn({
   );
 }
 
+/** Header action: icon plus a text label that collapses to icon-only on phones so the header fits. */
 function Btn({
   children,
+  label,
+  iconOnly,
   onClick,
   disabled,
   danger,
 }: {
   children: React.ReactNode;
+  label: string;
+  iconOnly?: boolean;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      title={danger ? "Delete workflow" : undefined}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-[12.5px] transition disabled:opacity-40 ${
+      aria-label={label}
+      title={label}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2 text-[12.5px] transition disabled:opacity-40 sm:px-2.5 ${
         danger ? "text-zinc-500 hover:text-zinc-200" : "text-zinc-200 hover:bg-white/[0.06]"
       }`}
     >
       {children}
+      {!iconOnly && <span className="hidden sm:inline">{label}</span>}
     </button>
   );
 }
 
-function ExportLink({ href, children, disabled }: { href: string; children: React.ReactNode; disabled?: boolean }) {
+function ExportLink({
+  href,
+  children,
+  label,
+  title,
+  disabled,
+}: {
+  href: string;
+  children: React.ReactNode;
+  label: string;
+  title: string;
+  disabled?: boolean;
+}) {
+  const text = <span className="sr-only sm:not-sr-only">{label}</span>;
   if (disabled) {
     return (
-      <span className="inline-flex h-7 cursor-not-allowed items-center gap-1.5 rounded-md border border-line px-2.5 text-[12.5px] text-zinc-600">
+      <span
+        title="Nothing to export yet"
+        className="inline-flex h-7 cursor-not-allowed items-center gap-1.5 rounded-md border border-line px-2 text-[12.5px] text-zinc-600 sm:px-2.5"
+      >
         {children}
+        {text}
       </span>
     );
   }
@@ -523,9 +549,12 @@ function ExportLink({ href, children, disabled }: { href: string; children: Reac
     <a
       href={href}
       download
-      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-[12.5px] text-zinc-200 transition hover:bg-white/[0.06]"
+      title={title}
+      aria-label={title}
+      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2 text-[12.5px] text-zinc-200 transition hover:bg-white/[0.06] sm:px-2.5"
     >
       {children}
+      {text}
     </a>
   );
 }
