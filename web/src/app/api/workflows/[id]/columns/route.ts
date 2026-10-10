@@ -8,11 +8,15 @@ import { authorize } from "@/lib/auth/access";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MAX_ROWS = 100;
-const BATCH = 25; // ≤ 4 LLM calls per column
+const MAX_ROWS = 60;
+const BATCH = 30; // ≤ 2 LLM calls per column
 const clip = (v: unknown) => {
   const s = Array.isArray(v) ? v.join(", ") : v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-  return s.length > 200 ? s.slice(0, 199) + "…" : s;
+  return s.length > 120 ? s.slice(0, 119) + "…" : s;
+};
+
+const host = (u: unknown) => {
+  try { return new URL(String(u)).hostname; } catch { return ""; }
 };
 
 function columnName(question: string, taken: Set<string>) {
@@ -61,9 +65,9 @@ Return {"answers": [{"id": number, "value": string|null, "basis": string}]}`;
   let failed = 0;
   await Promise.all(
     batches.map(async (rows) => {
-      const lines = rows.map((r) => `id=${r.id} | ` + [...cols.map((c) => `${c}: ${clip(r.data[c])}`), `why_matched: ${clip(r.data[WHY_KEY])}`, `source: ${r.source_url ?? ""}`].join(" | "));
+      const lines = rows.map((r) => `id=${r.id} | ` + [...cols.map((c) => `${c}: ${clip(r.data[c])}`), `why_matched: ${clip(r.data[WHY_KEY])}`, `source: ${host(r.source_url)}`].join(" | "));
       try {
-        const res = await llmJSON<{ answers?: { id: number; value: unknown; basis?: unknown }[] }>(system, untrusted(lines.join("\n")), 3000);
+        const res = await llmJSON<{ answers?: { id: number; value: unknown; basis?: unknown }[] }>(system, untrusted(lines.join("\n")), 2000);
         if (!res) throw new Error("No LLM key configured");
         for (const a of res.answers ?? [])
           if (rows.some((r) => Number(r.id) === Number(a.id)))

@@ -8,10 +8,10 @@ import { authorize } from "@/lib/auth/access";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_ROWS = 150;
+const MAX_ROWS = 80; // top rows by confidence; keeps each question cheap
 const clip = (v: unknown) => {
   const s = Array.isArray(v) ? v.join(", ") : v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-  return s.length > 140 ? s.slice(0, 139) + "…" : s;
+  return s.length > 100 ? s.slice(0, 99) + "…" : s;
 };
 
 /** Answer a question about one workflow's dataset, citing the record ids it used. */
@@ -50,7 +50,7 @@ Rules:
 Return {"answer": string, "record_ids": number[]}`;
 
   try {
-    const res = await llmJSON<{ answer?: string; record_ids?: unknown[] }>(system, `DATASET:\n${untrusted(table)}\n\nQUESTION: ${question.trim().slice(0, 500)}`, 1500);
+    const res = await llmJSON<{ answer?: string; record_ids?: unknown[] }>(system, `DATASET:\n${untrusted(table)}\n\nQUESTION: ${question.trim().slice(0, 500)}`, 800);
     if (!res) return NextResponse.json({ error: "No LLM key configured, so questions can't be answered." }, { status: 503 });
     const known = new Set(records.map((r) => Number(r.id)));
     const ids = (res.record_ids ?? []).map(Number).filter((n) => known.has(n)).slice(0, 25);
