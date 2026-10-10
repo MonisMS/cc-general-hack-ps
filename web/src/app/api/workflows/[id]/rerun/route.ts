@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { overUsageLimit, sql } from "@/lib/db";
 import { createWorkflow } from "@/lib/workflows";
 import { authorize } from "@/lib/auth/access";
 import { blockedReason } from "@/lib/pipeline/safety";
@@ -14,5 +14,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!w) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const blocked = blockedReason(w.prompt as string);
   if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+  const limited = await overUsageLimit(access.user.id, "run");
+  if (limited) return NextResponse.json({ error: limited }, { status: 429 });
   return NextResponse.json({ id: await createWorkflow(w.prompt as string, { ownerId: access.user.id }) });
 }

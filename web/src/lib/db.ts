@@ -60,3 +60,23 @@ export async function failStuckWorkflows(minutes = 8) {
       error = 'This run was interrupted (the server restarted or timed out). Use Rerun or Refresh to try again.'
     WHERE status = ANY(${RUNNING}) AND updated_at < now() - make_interval(mins => ${minutes})`;
 }
+
+// Hourly caps per user. "run" = new workflow, Rerun or Refresh; "ai" = Ask question or AI column.
+const LIMITS = { run: 5, ai: 30 } as const;
+const LIMIT_LABEL = { run: "runs", ai: "AI questions and columns" } as const;
+
+/**
+ * Count one use of `kind` for this user, or return a friendly message if they're at the hourly cap (send it as a
+ * 429). Check and insert are one statement; two requests landing at the same instant can still both get through.
+ */
+export async function overUsageLimit(userId: string, kind: keyof typeof LIMITS): Promise<string | null> {
+  const taken = await sql`INSERT INTO usage_events (user_id, kind)
+    SELECT ${userId}, ${kind}
+    WHERE (SELECT count(*) FROM usage_events
+           WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour') < ${LIMITS[kind]}
+    RETURNING id`;
+  if (taken.length) return null;
+  const [{ mins }] = await sql`SELECT greatest(1, ceil(extract(epoch FROM min(created_at) + interval '1 hour' - now()) / 60))::int AS mins
+    FROM usage_events WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour'`;
+  return `You've reached the limit of ${LIMITS[kind]} ${LIMIT_LABEL[kind]} per hour. Try again in about ${mins ?? 60} minute${mins === 1 ? "" : "s"}.`;
+}
