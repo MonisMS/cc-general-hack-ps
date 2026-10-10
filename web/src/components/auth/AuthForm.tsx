@@ -25,7 +25,21 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Email/password accounts must confirm their address with a 6-digit code before they get a session.
+  const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const signUp = mode === "sign-up";
+
+  function done() {
+    router.replace(AFTER_AUTH);
+    router.refresh();
+  }
+
+  async function sendCode(email: string) {
+    const { error } = await authClient.emailOtp.sendVerificationOtp({ email, type: "email-verification" });
+    if (error) setError(error.message || "Couldn't send the code. Try again in a minute.");
+    else setNotice(`We sent a new code to ${email}.`);
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -34,16 +48,48 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     const password = String(f.get("password") ?? "");
     setBusy("email");
     setError(null);
-    const { error } = signUp
+    const { data, error } = signUp
       ? await authClient.signUp.email({ name: String(f.get("name") ?? "").trim() || email.split("@")[0], email, password })
       : await authClient.signIn.email({ email, password });
     if (error) {
-      setError(error.message || (signUp ? "Couldn't create your account." : "Wrong email or password."));
+      if (error.code === "EMAIL_NOT_VERIFIED") {
+        // signed up earlier but never confirmed: send a fresh code and ask for it
+        setVerifyEmail(email);
+        await sendCode(email);
+      } else setError(error.message || (signUp ? "Couldn't create your account." : "Wrong email or password."));
       setBusy(null);
       return;
     }
-    router.replace(AFTER_AUTH);
-    router.refresh();
+    // sign-up sends the code automatically and returns an unverified user without a session
+    if (signUp && !(data && "user" in data && data.user?.emailVerified)) {
+      setVerifyEmail(email);
+      setNotice(`We sent a 6-digit code to ${email}.`);
+      setBusy(null);
+      return;
+    }
+    done();
+  }
+
+  async function onVerify(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!verifyEmail) return;
+    const otp = String(new FormData(e.currentTarget).get("otp") ?? "").replace(/\D/g, "");
+    setBusy("email");
+    setError(null);
+    const { data, error } = await authClient.emailOtp.verifyEmail({ email: verifyEmail, otp });
+    if (error) {
+      setError(error.message || "That code didn't work. Check it or send a new one.");
+      setBusy(null);
+      return;
+    }
+    if (data && "token" in data && data.token == null) {
+      // verified, but auto sign-in is off: send them to sign in with their password
+      setNotice("Email confirmed. Sign in to continue.");
+      setVerifyEmail(null);
+      setBusy(null);
+      return;
+    }
+    done();
   }
 
   async function google() {
@@ -69,70 +115,125 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           <Logo size={22} />
           <span className="text-[15px] font-semibold text-zinc-50">DataPilot</span>
         </Link>
-        <h1 className="mt-6 text-[24px] font-semibold tracking-[-0.02em] text-zinc-50">{signUp ? "Create your account" : "Welcome back"}</h1>
-        <p className="mt-1 text-[14px] text-zinc-400">{signUp ? "Your datasets stay private to you." : "Sign in to your datasets."}</p>
-
-        <button
-          type="button"
-          onClick={google}
-          disabled={busy !== null}
-          className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-line-strong bg-zinc-50/[0.04] text-[14px] font-medium text-zinc-100 transition hover:bg-zinc-50/[0.08] disabled:opacity-50"
-        >
-          {busy === "google" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GoogleMark />} Continue with Google
-        </button>
-
-        <div className="my-5 flex items-center gap-3 text-[12px] text-zinc-500" aria-hidden>
-          <span className="h-px flex-1 bg-line-strong" /> or with email <span className="h-px flex-1 bg-line-strong" />
-        </div>
-
-        <form onSubmit={onSubmit} className="space-y-3.5">
-          {signUp && (
-            <div>
-              <label htmlFor="name" className="mb-1.5 block text-[13px] text-zinc-300">
-                Name
-              </label>
-              <input id="name" name="name" autoComplete="name" placeholder="Ada Lovelace" className={input} />
-            </div>
-          )}
-          <div>
-            <label htmlFor="email" className="mb-1.5 block text-[13px] text-zinc-300">
-              Email
-            </label>
-            <input id="email" name="email" type="email" required autoComplete="email" placeholder="you@company.com" className={input} />
-          </div>
-          <div>
-            <label htmlFor="password" className="mb-1.5 block text-[13px] text-zinc-300">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              minLength={8}
-              autoComplete={signUp ? "new-password" : "current-password"}
-              placeholder={signUp ? "At least 8 characters" : "Your password"}
-              className={input}
-            />
-          </div>
-          {error && (
-            <p role="alert" className="rounded-md border border-danger/25 bg-danger/10 px-3 py-2 text-[13px] text-danger-soft">
-              {error}
+        {verifyEmail ? (
+          <>
+            <h1 className="mt-6 text-[24px] font-semibold tracking-[-0.02em] text-zinc-50">Check your email</h1>
+            <p className="mt-1 text-[14px] text-zinc-400">
+              Enter the 6-digit code we sent to <span className="text-zinc-200">{verifyEmail}</span>. It expires in 15 minutes.
             </p>
-          )}
-          <button type="submit" disabled={busy !== null} className="btn-glow inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg text-[14px] font-medium">
-            {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-            {signUp ? "Create account" : "Sign in"}
-            {busy !== "email" && <ArrowRight className="h-4 w-4" aria-hidden />}
-          </button>
-        </form>
+            <form onSubmit={onVerify} className="mt-6 space-y-3.5">
+              <div>
+                <label htmlFor="otp" className="mb-1.5 block text-[13px] text-zinc-300">
+                  Verification code
+                </label>
+                <input
+                  id="otp"
+                  name="otp"
+                  required
+                  autoFocus
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\s*\d{6}\s*"
+                  maxLength={8}
+                  placeholder="123456"
+                  className={`${input} font-mono tracking-[0.3em]`}
+                />
+              </div>
+              {notice && !error && <p className="text-[13px] text-zinc-400">{notice}</p>}
+              {error && (
+                <p role="alert" className="rounded-md border border-danger/25 bg-danger/10 px-3 py-2 text-[13px] text-danger-soft">
+                  {error}
+                </p>
+              )}
+              <button type="submit" disabled={busy !== null} className="btn-glow inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg text-[14px] font-medium">
+                {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Verify and continue
+              </button>
+            </form>
+            <p className="mt-6 text-center text-[13px] text-zinc-400">
+              No code?{" "}
+              <button type="button" onClick={() => (setError(null), sendCode(verifyEmail))} className="font-medium text-zinc-100 underline-offset-4 hover:underline">
+                Send a new one
+              </button>
+              {" · "}
+              <button
+                type="button"
+                onClick={() => (setVerifyEmail(null), setError(null), setNotice(null))}
+                className="font-medium text-zinc-100 underline-offset-4 hover:underline"
+              >
+                Use a different email
+              </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-6 text-[24px] font-semibold tracking-[-0.02em] text-zinc-50">{signUp ? "Create your account" : "Welcome back"}</h1>
+            <p className="mt-1 text-[14px] text-zinc-400">{signUp ? "Your datasets stay private to you." : "Sign in to your datasets."}</p>
 
-        <p className="mt-6 text-center text-[13px] text-zinc-400">
-          {signUp ? "Already have an account? " : "New to DataPilot? "}
-          <Link href={signUp ? "/auth/sign-in" : "/auth/sign-up"} className="font-medium text-zinc-100 underline-offset-4 hover:underline">
-            {signUp ? "Sign in" : "Create an account"}
-          </Link>
-        </p>
+            <button
+              type="button"
+              onClick={google}
+              disabled={busy !== null}
+              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-line-strong bg-zinc-50/[0.04] text-[14px] font-medium text-zinc-100 transition hover:bg-zinc-50/[0.08] disabled:opacity-50"
+            >
+              {busy === "google" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GoogleMark />} Continue with Google
+            </button>
+
+            <div className="my-5 flex items-center gap-3 text-[12px] text-zinc-500" aria-hidden>
+              <span className="h-px flex-1 bg-line-strong" /> or with email <span className="h-px flex-1 bg-line-strong" />
+            </div>
+
+            <form onSubmit={onSubmit} className="space-y-3.5">
+              {signUp && (
+                <div>
+                  <label htmlFor="name" className="mb-1.5 block text-[13px] text-zinc-300">
+                    Name
+                  </label>
+                  <input id="name" name="name" autoComplete="name" placeholder="Ada Lovelace" className={input} />
+                </div>
+              )}
+              <div>
+                <label htmlFor="email" className="mb-1.5 block text-[13px] text-zinc-300">
+                  Email
+                </label>
+                <input id="email" name="email" type="email" required autoComplete="email" placeholder="you@company.com" className={input} />
+              </div>
+              <div>
+                <label htmlFor="password" className="mb-1.5 block text-[13px] text-zinc-300">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete={signUp ? "new-password" : "current-password"}
+                  placeholder={signUp ? "At least 8 characters" : "Your password"}
+                  className={input}
+                />
+              </div>
+              {notice && !error && <p className="text-[13px] text-zinc-400">{notice}</p>}
+              {error && (
+                <p role="alert" className="rounded-md border border-danger/25 bg-danger/10 px-3 py-2 text-[13px] text-danger-soft">
+                  {error}
+                </p>
+              )}
+              <button type="submit" disabled={busy !== null} className="btn-glow inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg text-[14px] font-medium">
+                {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                {signUp ? "Create account" : "Sign in"}
+                {busy !== "email" && <ArrowRight className="h-4 w-4" aria-hidden />}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-[13px] text-zinc-400">
+              {signUp ? "Already have an account? " : "New to DataPilot? "}
+              <Link href={signUp ? "/auth/sign-in" : "/auth/sign-up"} className="font-medium text-zinc-100 underline-offset-4 hover:underline">
+                {signUp ? "Sign in" : "Create an account"}
+              </Link>
+            </p>
+          </>
+        )}
       </main>
     </div>
   );
