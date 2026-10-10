@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 
 const csvCell = (v: unknown) => {
   const s = v == null ? "" : Array.isArray(v) ? v.join("; ") : typeof v === "object" ? JSON.stringify(v) : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // A leading = + - @ (or tab/CR) would run as a formula in Excel/Sheets, so mark it as text. Real numbers (-5) are left alone.
+  const safe = /^[=+\-@\t\r]/.test(s) && typeof v !== "number" ? `'${s}` : s;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -46,5 +48,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const header = [...cols, "why_matched", "criteria_met", "source", "source_url", "confidence", "fetched_at"];
   const lines = [header.join(","), ...records.map((r) =>
     [...cols.map((c) => r.data[c]), r.data[WHY_KEY], criteriaMet(r.data), r.source_name, r.source_url, r.confidence, new Date(r.fetched_at).toISOString()].map(csvCell).join(","))];
-  return new Response(lines.join("\n"), { headers: { "content-type": "text/csv", "content-disposition": `attachment; filename="${slug}.csv"` } });
+  // BOM so Excel reads the file as UTF-8 (₹, €, accents)
+  return new Response("\uFEFF" + lines.join("\n"), { headers: { "content-type": "text/csv", "content-disposition": `attachment; filename="${slug}.csv"` } });
 }
