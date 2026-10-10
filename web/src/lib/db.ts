@@ -62,7 +62,9 @@ export async function failStuckWorkflows(minutes = 8) {
 }
 
 // Hourly caps per user. "run" = new workflow, Rerun or Refresh; "ai" = Ask question or AI column.
-const LIMITS = { run: 5, ai: 30 } as const;
+// RUN_LIMIT_PER_HOUR / AI_LIMIT_PER_HOUR override the defaults (e.g. raise them for demo rehearsals).
+const hourly = (env: string, fallback: number) => Math.max(Math.floor(Number(process.env[env])) || fallback, 1);
+const LIMITS = { run: () => hourly("RUN_LIMIT_PER_HOUR", 5), ai: () => hourly("AI_LIMIT_PER_HOUR", 30) };
 const LIMIT_LABEL = { run: "runs", ai: "AI questions and columns" } as const;
 
 /**
@@ -70,13 +72,14 @@ const LIMIT_LABEL = { run: "runs", ai: "AI questions and columns" } as const;
  * 429). Check and insert are one statement; two requests landing at the same instant can still both get through.
  */
 export async function overUsageLimit(userId: string, kind: keyof typeof LIMITS): Promise<string | null> {
+  const max = LIMITS[kind]();
   const taken = await sql`INSERT INTO usage_events (user_id, kind)
     SELECT ${userId}, ${kind}
     WHERE (SELECT count(*) FROM usage_events
-           WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour') < ${LIMITS[kind]}
+           WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour') < ${max}
     RETURNING id`;
   if (taken.length) return null;
   const [{ mins }] = await sql`SELECT greatest(1, ceil(extract(epoch FROM min(created_at) + interval '1 hour' - now()) / 60))::int AS mins
     FROM usage_events WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour'`;
-  return `You've reached the limit of ${LIMITS[kind]} ${LIMIT_LABEL[kind]} per hour. Try again in about ${mins ?? 60} minute${mins === 1 ? "" : "s"}.`;
+  return `You've reached the limit of ${max} ${LIMIT_LABEL[kind]} per hour. Try again in about ${mins ?? 60} minute${mins === 1 ? "" : "s"}.`;
 }
