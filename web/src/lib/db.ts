@@ -38,6 +38,23 @@ export async function setStatus(
     WHERE id = ${workflowId} AND (status <> 'cancelled' OR ${status} = 'queued')`;
 }
 
+/**
+ * Start a run only if the workflow is still in one of `from`: check and update are one statement, so of two
+ * clicks (or tabs) landing together exactly one wins. Returns false for the loser; send it a 409.
+ */
+export async function claimRun(workflowId: string, from: WorkflowStatus[], to: WorkflowStatus, progress: number, plan?: unknown) {
+  const rows = await sql`UPDATE workflows SET
+      status = ${to},
+      progress = ${progress},
+      plan = COALESCE(${plan ? JSON.stringify(plan) : null}::jsonb, plan),
+      error = NULL,
+      updated_at = now(),
+      finished_at = NULL
+    WHERE id = ${workflowId} AND status = ANY(${from})
+    RETURNING id`;
+  return rows.length > 0;
+}
+
 export class CancelledError extends Error {
   constructor() {
     super("Stopped by user");

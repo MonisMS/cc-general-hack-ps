@@ -14,6 +14,10 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!w) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const blocked = blockedReason(w.prompt as string);
   if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+  // a double click (or two tabs) gets the copy the first click just started instead of a second one
+  const [recent] = await sql`SELECT id FROM workflows WHERE owner_id = ${access.user.id} AND prompt = ${w.prompt}
+    AND id <> ${id} AND created_at > now() - interval '15 seconds' ORDER BY created_at DESC LIMIT 1`;
+  if (recent) return NextResponse.json({ id: recent.id });
   const limited = await overUsageLimit(access.user.id, "run");
   if (limited) return NextResponse.json({ error: limited }, { status: 429 });
   return NextResponse.json({ id: await createWorkflow(w.prompt as string, { ownerId: access.user.id }) });
