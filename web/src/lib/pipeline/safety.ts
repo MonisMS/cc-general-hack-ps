@@ -13,13 +13,25 @@ const RULES: [RegExp, string][] = [
     "it asks for sexual or adult content",
   ],
   [
-    /\b(hot|sexy|cute|beautiful|pretty|attractive|single|horny|busty|curvy)\s+(girls?|gals?|women|woman|ladies|lady|chicks?|babes?|boys?|guys?|men|dudes?|aunt(y|ies)|bhabhi|models?)\b/i,
+    // "hot" and "single" are left out of the models line: "hot models on Hugging Face" is about ML models
+    /\b((hot|sexy|cute|beautiful|pretty|attractive|horny|busty|curvy)\s+(girls?|gals?|women|woman|ladies|lady|chicks?|babes?|boys?|guys?|men|dudes?|aunt(y|ies)|bhabhi)|(sexy|cute|beautiful|pretty|attractive|busty|curvy)\s+models?)\b/i,
+    "it rates people by looks or targets them as dating or sexual prospects",
+  ],
+  [
+    // "single women founders" is a business list; "single women in Delhi" is a dating one
+    /\bsingle\s+(girls?|women|woman|ladies|lady|boys?|guys?|men)\b(?!\s+(founders?|ceos?|entrepreneurs?|leaders?|executives?|investors?|engineers?|developers?|scientists?|athletes?|authors?|business))/i,
     "it rates people by looks or targets them as dating or sexual prospects",
   ],
   [/\b(girls?|women|chicks?|babes?|singles?)\s+(near me|nearby|around me|in my area)\b/i, "it asks to find private individuals near you"],
   [
-    /\b(home address(es)?|phone numbers? of|personal (phone|address|details) of|where does .{1,40} live|track (my|a|her|his) )/i,
+    // people only: "phone numbers of hospitals" and "track my competitors" are business data
+    /\b(home address(es)?|personal (phone|address|email|details)|(phone|mobile|cell) numbers? of (my|her|his|girls?|women|men|people|someone|individuals)|where does .{1,40} live|track (her|him|someone|a person|my (ex|wife|husband|girlfriend|boyfriend|partner|crush|spouse))\b)/i,
     "it asks for private personal details about individuals",
+  ],
+  [
+    // checked here too, so the rule-based planner (no LLM) can't run it
+    /\b(pipe ?bombs?|nail bombs?|molotov cocktails?|napalm|ricin|sarin|nerve agents?)\b|\b(how (to|do i|can i)|instructions (for|to)|recipe for|homemade|(make|build) (a|an|my own))\b.{0,30}\b(?<!bath )(bombs?|explosives?|ieds?)\b/i,
+    "it asks how to make weapons or explosives",
   ],
 ];
 
