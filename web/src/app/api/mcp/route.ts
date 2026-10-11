@@ -1,6 +1,7 @@
 import { createMcpHandler, getPublicOrigin, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
-import { failStuckWorkflows, overUsageLimit, sql } from "@/lib/db";
+import { failStuckWorkflows, overUsageLimit, refundUsage, sql } from "@/lib/db";
+import { llmProviders } from "@/lib/llm";
 import { createWorkflow } from "@/lib/workflows";
 import { accessFor, READ_ONLY } from "@/lib/auth/access";
 import { userForKey } from "@/lib/auth/api-keys";
@@ -163,9 +164,12 @@ Returns immediately with a dataset id; a run takes 1-4 minutes. Then call datapi
         const { userId, origin } = caller(ctx as Ctx);
         const blocked = blockedReason(request);
         if (blocked) return fail(blocked);
-        const limited = await overUsageLimit(userId, "run");
+        // a client retrying the same call gets the run it just started, like a double submit in the web app
+        const [recent] = await sql`SELECT id FROM workflows WHERE owner_id = ${userId} AND prompt = ${request}
+          AND created_at > now() - interval '15 seconds' ORDER BY created_at DESC LIMIT 1`;
+        const limited = recent ? null : await overUsageLimit(userId, "run");
         if (limited) return fail(limited);
-        const id = await createWorkflow(request, { ownerId: userId });
+        const id = (recent?.id as string | undefined) ?? (await createWorkflow(request, { ownerId: userId }));
         return text(
           json({
             id,
@@ -271,10 +275,14 @@ Returns immediately with a dataset id; a run takes 1-4 minutes. Then call datapi
         const rows = await askRows(dataset_id);
         if (!rows) return fail(`No dataset with id "${dataset_id}".`);
         if (!rows.records.length) return fail("This dataset has no records yet.");
+        if (!llmProviders().length) return fail("No LLM key configured on this server, so questions can't be answered.");
         const limited = await overUsageLimit(userId, "ai");
         if (limited) return fail(limited);
         const res = await answer(rows, question);
-        if (!res.ok) return fail(res.error);
+        if (!res.ok) {
+          await refundUsage(userId, "ai"); // same as the web route: a failed answer doesn't use up the hourly limit
+          return fail(res.error);
+        }
         const cited = rows.records
           .filter((r) => res.record_ids.includes(Number(r.id)))
           .map((r) => ({ record_id: Number(r.id), source_url: r.source_url ?? null }));

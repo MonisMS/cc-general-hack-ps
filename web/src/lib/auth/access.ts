@@ -8,8 +8,18 @@ import { currentUser, type AppUser } from "./server";
 export const unauthorized = () => NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
+/** The signed-in user, null, or a 503 when Neon Auth can't be reached (instead of a bare 500 on every route). */
+async function sessionUser(): Promise<AppUser | null | NextResponse> {
+  try {
+    return await currentUser();
+  } catch (e) {
+    console.error("Neon Auth unavailable", e);
+    return NextResponse.json({ error: "Sign-in is unavailable right now. Try again in a minute." }, { status: 503 });
+  }
+}
+
 export async function requireUser(): Promise<AppUser | NextResponse> {
-  return (await currentUser()) ?? unauthorized();
+  return (await sessionUser()) ?? unauthorized();
 }
 
 /**
@@ -17,8 +27,9 @@ export async function requireUser(): Promise<AppUser | NextResponse> {
  * Returns a NextResponse to send back when access is denied.
  */
 export async function authorize(id: string, mode: "read" | "write"): Promise<{ user: AppUser } | NextResponse> {
-  const user = await currentUser();
+  const user = await sessionUser();
   if (!user) return unauthorized();
+  if (user instanceof NextResponse) return user;
   const access = await accessFor(user.id, id, mode);
   if (access === "ok") return { user };
   return access === "read_only" ? NextResponse.json({ error: READ_ONLY }, { status: 403 }) : notFound();

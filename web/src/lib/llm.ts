@@ -65,7 +65,7 @@ const busy = (status: number) => [401, 402, 403, 408, 429].includes(status) || s
 // A provider that just said "rate limited / out of credits" is skipped for a while, so later calls in the
 // same run go straight to one that works instead of failing on it again.
 const coolingUntil = new Map<Provider, number>();
-const cooldownMs = (e: LLMError) => (e.status === 429 || e.status === 402 ? 60_000 : 15_000);
+const cooldownMs = (e: LLMError) => ([401, 402, 403, 429].includes(e.status ?? 0) ? 60_000 : 15_000);
 
 /** Time for one attempt: its own limit, cut short by what's left of the whole call's deadline. */
 type Budget = { attemptMs: number; deadline: number };
@@ -100,7 +100,11 @@ async function readJSON(label: string, res: Response) {
 
 async function fail(label: string, res: Response): Promise<never> {
   count(false);
-  throw new LLMError(`${label} ${res.status}: ${(await res.text()).slice(0, 200)}`, res.status, busy(res.status));
+  const text = await res.text();
+  // Gemini's bad key and Anthropic's empty balance come back as 400: treat them as the 401 / 402 they are, so
+  // the next provider answers. Any other 400 is our request's fault and still fails fast.
+  const status = res.status !== 400 ? res.status : /credit balance|billing|insufficient/i.test(text) ? 402 : /api.?key/i.test(text) ? 401 : 400;
+  throw new LLMError(`${label} ${res.status}: ${text.slice(0, 200)}`, status, busy(status));
 }
 
 /** `truncated`: the provider stopped because it hit maxTokens, so the JSON is probably incomplete. */
@@ -249,6 +253,11 @@ export async function llmJSON<T>(
     }
     coolingUntil.delete(p);
     if (answer.truncated) throw new LLMOutputError(`${LABEL[p]} answer was cut off at ${maxTokens} tokens`, answer.text, true);
+    // nothing at all (Gemini's SAFETY filter, a refusal) says nothing about the request: ask the next provider
+    if (!answer.text.trim()) {
+      errors.push(new LLMError(`${LABEL[p]} returned an empty answer`, null, true));
+      continue;
+    }
     try {
       return parseJSON<T>(answer.text);
     } catch {

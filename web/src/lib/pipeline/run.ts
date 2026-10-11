@@ -6,7 +6,7 @@ import { PAGE_KEYS, type ConnectorId, type DropReasons, type RawItem, type Sourc
 import { extractAll } from "./extract";
 import { planWorkflow } from "./planner";
 import { RejectedRequestError } from "./safety";
-import { identityField, validateAndDedupe, type CleanRow } from "./validate";
+import { identityField, sourceName, validateAndDedupe, type CleanRow } from "./validate";
 
 // Raw items kept per run; env override for quota-limited runs (eval --lite).
 const maxRaw = () => Math.min(Math.max(Number(process.env.MAX_RAW_ITEMS) || 120, 6), 150);
@@ -39,13 +39,23 @@ async function syncRecords(id: string, clean: CleanRow[], prune?: { since: strin
   return gone.length;
 }
 
+// web_search alone can take ~180s; past this a step counts as failed so extraction still gets its time
+const STEP_TIMEOUT_MS = 100_000;
+
 /** Run one source step, recording it in `sources` and the activity log. Failures return no items. */
-async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
+async function collectStep(id: string, step: SourceStep, timeoutMs = STEP_TIMEOUT_MS): Promise<RawItem[]> {
   const c = CONNECTORS[step.connector];
   const t0 = Date.now();
   await logEvent(id, "collect", `→ ${c.label}: "${step.query}"`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const r = await c.run(step.query, step.limit ?? 20);
+    // connectors take no abort signal: a step that runs over is abandoned, and its fetches end with the function
+    const r = await Promise.race([
+      c.run(step.query, step.limit ?? 20),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new UserFacingError(`took longer than ${timeoutMs / 1000}s, so it was skipped`)), timeoutMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
     const ms = Date.now() - t0;
     for (const w of r.warnings ?? []) await logEvent(id, "collect", w, "warn");
     // "empty" rather than "ok" so a search that silently found nothing stands out in the Sources tab
@@ -67,6 +77,8 @@ async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
   }
 }
 
+const SEARCH_SOURCES = new Set<string>(["web_search", "wikipedia"]);
+
 /**
  * Source names a refresh may prune: those from connectors whose every step returned items this run. A step that
  * failed or found nothing says nothing about whether its old rows are gone.
@@ -80,9 +92,10 @@ function prunableSources(collected: { connector: ConnectorId; items: RawItem[] }
   for (const c of collected)
     if (!down.has(c.connector))
       for (const it of c.items) {
-        // same naming as validate.ts source_name
-        const name = it.fields?.data_provider === "coinpaprika" ? "coinpaprika" : it.source;
-        if (!down.has(name)) ok.add(name);
+        const name = sourceName(it);
+        // search results shift from run to run: a page missing from this search isn't gone, so its rows (and their
+        // AI-column answers) stay. API lists (jobs, coins, repos) are complete, so a missing row really was removed.
+        if (!down.has(name) && !SEARCH_SOURCES.has(name)) ok.add(name);
       }
   return { ok: [...ok], down: [...down] };
 }
@@ -131,39 +144,53 @@ export async function runWorkflow(id: string, prompt: string, opts: { review?: b
     }
     await setStatus(id, "collecting", 15, { plan, title: plan.title });
   } catch (e) {
-    if (e instanceof CancelledError) return void (await logEvent(id, "cancel", "Stopped by you before collection started", "warn"));
-    if (e instanceof RejectedRequestError) {
-      await setStatus(id, "failed", 100, { error: e.message, title: "Request not supported" });
-      return void (await logEvent(id, "plan", `Refused: ${e.message}`, "warn"));
-    }
-    const msg = runFailure(id, e);
-    await setStatus(id, "failed", 100, { error: msg });
-    await logEvent(id, "error", msg, "error");
+    await (async () => {
+      if (e instanceof CancelledError) return void (e.superseded || (await logEvent(id, "cancel", "Stopped by you before collection started", "warn")));
+      if (e instanceof RejectedRequestError) {
+        await setStatus(id, "failed", 100, { error: e.message, title: "Request not supported" });
+        return void (await logEvent(id, "plan", `Refused: ${e.message}`, "warn"));
+      }
+      const msg = runFailure(id, e);
+      await setStatus(id, "failed", 100, { error: msg });
+      await logEvent(id, "error", msg, "error");
+    })().catch(unrecorded(id));
     return;
   }
   await executePlan(id, plan, { startedAt });
+}
+
+// Recording a failure needs the DB too. If that also fails, log it (not an unhandled rejection inside after());
+// failStuckWorkflows marks the run failed a few minutes later.
+const unrecorded = (id: string) => (err: unknown) => console.error(`workflow ${id}: couldn't record how the run ended`, err);
+
+/** A refresh keeps the previous run's sources until it succeeds; afterwards only one run's sources remain. */
+async function keepSources(id: string, since: string, which: "new" | "old") {
+  if (which === "new") await sql`DELETE FROM sources WHERE workflow_id = ${id} AND created_at < ${since}`;
+  else await sql`DELETE FROM sources WHERE workflow_id = ${id} AND created_at >= ${since}`;
 }
 
 /** Stage 2: collect → extract → validate/dedupe → store. Also used to refresh a dataset with its saved plan. */
 // Runs live in an after() with maxDuration 300s: stop asking the AI at ~230s (counted from when the request started)
 // and finish with keyword matching, so the run completes instead of being killed mid-way.
 const RUN_BUDGET_MS = 230_000;
+// the top-up search + its extraction need this much of the budget left, or they would push the run past 300s
+const TOP_UP_MIN_MS = 60_000;
 
 export async function executePlan(id: string, plan: WorkflowPlan, opts: { refresh?: boolean; startedAt?: number } = {}) {
   const deadline = (opts.startedAt ?? Date.now()) + RUN_BUDGET_MS;
-  const [prev] = await sql`SELECT stats, now() AS started FROM workflows WHERE id = ${id}`;
-  const prevRuns = (prev?.stats as Workflow["stats"])?.runs ?? 0;
-  const runs = (opts.refresh ? Math.max(prevRuns, 1) : prevRuns) + 1; // datasets from before run counting still refresh as #2
-  // DB clock, so it compares cleanly with records.fetched_at (default now()) for NEW badges
-  const startedAt = new Date(prev.started).toISOString();
-  const stats: Workflow["stats"] = { runs, run_started_at: startedAt };
+  const stats: Workflow["stats"] = {};
+  let startedAt = "";
   // AI columns are filled on demand, not extracted from sources; keep their stored values untouched.
   const work: WorkflowPlan = { ...plan, fields: plan.fields.filter((f) => !f.ai) };
   try {
-    if (opts.refresh) {
-      await sql`DELETE FROM sources WHERE workflow_id = ${id}`;
-      await logEvent(id, "refresh", `Refresh #${runs - 1}: re-collecting with the saved plan (no planning call needed)`);
-    }
+    const [prev] = await sql`SELECT stats, now() AS started FROM workflows WHERE id = ${id}`;
+    const prevStats = (prev?.stats ?? {}) as Workflow["stats"];
+    const prevRuns = prevStats.runs ?? 0;
+    const runs = (opts.refresh ? Math.max(prevRuns, 1) : prevRuns) + 1; // datasets from before run counting still refresh as #2
+    // DB clock, so it compares cleanly with records.fetched_at (default now()) for NEW badges
+    startedAt = new Date(prev.started).toISOString();
+    Object.assign(stats, { runs, run_started_at: startedAt });
+    if (opts.refresh) await logEvent(id, "refresh", `Refresh #${runs - 1}: re-collecting with the saved plan (no planning call needed)`);
     await setStatus(id, "collecting", 15, { stats });
 
     // Collect (all sources in parallel)
@@ -184,7 +211,15 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
         }
     stats.raw = raw.length;
     await assertNotCancelled(id, stats.run_started_at);
-    if (!raw.length) throw new UserFacingError("No data could be collected from any source. Try rephrasing the request.");
+    if (!raw.length) {
+      const [{ has }] = opts.refresh ? await sql`SELECT EXISTS (SELECT 1 FROM records WHERE workflow_id = ${id}) AS has` : [{ has: false }];
+      if (!has) throw new UserFacingError("No data could be collected from any source. Try rephrasing the request.");
+      // a refresh that reached nothing says nothing about the dataset: keep it, its stats and its sources as they were
+      await keepSources(id, startedAt, "old");
+      await logEvent(id, "refresh", "Every source failed or found nothing this time, so the previous data was kept", "warn");
+      await setStatus(id, "completed", 100, { stats: { ...prevStats, runs, run_started_at: startedAt } });
+      return;
+    }
     await logEvent(id, "collect", `Collected ${raw.length} raw items from ${stats.sources_ok} sources`, "success");
 
     // Extract, streaming validated rows into the table after every batch
@@ -195,7 +230,8 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     const { rows, mode, keywordItems } = await extractAll(work, raw, async (done, total, note, rowsSoFar) => {
       await assertNotCancelled(id, stats.run_started_at); // throwing here stops the remaining batches
       if (note) await logEvent(id, "extract", tidyNote(note), "warn");
-      await sql`UPDATE workflows SET progress = ${45 + Math.round((done / total) * 40)}, updated_at = now() WHERE id = ${id}`;
+      await sql`UPDATE workflows SET progress = ${45 + Math.round((done / total) * 40)}, updated_at = now()
+        WHERE id = ${id} AND stats->>'run_started_at' = ${startedAt}`; // never a newer run's progress bar
       if (!rowsSoFar || done === total) return; // the final sync happens after validation below
       const snapshot = validateAndDedupe(work, [...rowsSoFar]).clean;
       sync = sync
@@ -220,10 +256,14 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     // Thin result: one extra web search phrased from the dataset title, then validate everything again
     const want = Math.min(20, work.max_results);
     const topUpQuery = work.title.slice(0, 120);
-    if (clean.length < want && !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())) {
+    if (
+      clean.length < want &&
+      deadline - Date.now() > TOP_UP_MIN_MS &&
+      !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())
+    ) {
       await assertNotCancelled(id, stats.run_started_at);
       await logEvent(id, "collect", `Only ${clean.length} row${clean.length === 1 ? "" : "s"} so far, so running one extra web search`);
-      const topUp = await collectStep(id, { connector: "web_search", query: topUpQuery, limit: 10 });
+      const topUp = await collectStep(id, { connector: "web_search", query: topUpQuery, limit: 10 }, 45_000);
       collected.push({ connector: "web_search", items: topUp });
       // the extra search is a source step too, so it belongs in the sources ok / failed counts
       if (topUp.length) stats.sources_ok = (stats.sources_ok ?? 0) + 1;
@@ -264,21 +304,30 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     else if (runs > 1 && down.length) await logEvent(id, "refresh", `Kept previous data from ${down.join(", ")} (failed or found nothing this time)`, "warn");
     stats.stored = clean.length;
     if (runs > 1) {
-      const [{ added }] = await sql`SELECT count(*)::int AS added FROM records WHERE workflow_id = ${id} AND fetched_at >= ${stats.run_started_at}`;
+      // counted, not derived from clean.length: rows a skipped prune kept are "still there" too
+      const [{ added, kept }] = await sql`SELECT count(*) FILTER (WHERE fetched_at >= ${startedAt})::int AS added,
+          count(*) FILTER (WHERE fetched_at < ${startedAt})::int AS kept FROM records WHERE workflow_id = ${id}`;
       Object.assign(stats, { added, removed });
-      await logEvent(id, "refresh", `What changed: +${added} new, ${removed} no longer listed, ${clean.length - added} still there`, "success");
+      await logEvent(id, "refresh", `What changed: +${added} new, ${removed} no longer listed, ${kept} still there`, "success");
     }
     if (!clean.length)
       await logEvent(id, "validate", `No records matched the request${drops ? `: ${drops}` : ""}. Try loosening a filter in the plan, or say what kind of entity, where, and which details you need.`, "warn");
+    if (opts.refresh) await keepSources(id, startedAt, "new");
     await setStatus(id, "completed", 100, { stats });
     await logEvent(id, "store", `Dataset ready: ${clean.length} clean, source-backed records`, "success");
   } catch (e) {
-    if (e instanceof CancelledError) {
-      await logEvent(id, "cancel", `Stopped by you. ${(await sql`SELECT count(*)::int AS c FROM records WHERE workflow_id = ${id}`)[0].c} rows collected so far were kept.`, "warn");
-      return;
-    }
-    const msg = runFailure(id, e);
-    await setStatus(id, "failed", 100, { stats, error: msg });
-    await logEvent(id, "error", msg, "error");
+    await (async () => {
+      if (e instanceof CancelledError) {
+        if (e.superseded) return;
+        // the rows this run collected so far are kept, so its sources are the ones that explain them
+        if (opts.refresh && startedAt) await keepSources(id, startedAt, "new");
+        const [{ c }] = await sql`SELECT count(*)::int AS c FROM records WHERE workflow_id = ${id}`;
+        return void (await logEvent(id, "cancel", `Stopped by you. ${c} rows collected so far were kept.`, "warn"));
+      }
+      if (opts.refresh && startedAt) await keepSources(id, startedAt, "old");
+      const msg = runFailure(id, e);
+      await setStatus(id, "failed", 100, { stats, error: msg });
+      await logEvent(id, "error", msg, "error");
+    })().catch(unrecorded(id));
   }
 }

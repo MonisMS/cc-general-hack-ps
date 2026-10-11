@@ -2,6 +2,8 @@ import { after, NextResponse } from "next/server";
 import { claimRun, logEvent, sql } from "@/lib/db";
 import { executePlan } from "@/lib/pipeline/run";
 import { applyPlanEdits } from "@/lib/pipeline/planner";
+import { RejectedRequestError } from "@/lib/pipeline/safety";
+import { UserFacingError } from "@/lib/errors";
 import type { WorkflowPlan } from "@/lib/types";
 import { authorize } from "@/lib/auth/access";
 
@@ -12,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const access = await authorize(id, "write");
   if (access instanceof Response) return access;
-  const { plan: edited } = await req.json().catch(() => ({}));
+  const { plan: edited } = (await req.json().catch(() => null)) ?? {};
   const [w] = await sql`SELECT status, plan FROM workflows WHERE id = ${id}`;
   if (!w) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (w.status !== "review") return NextResponse.json({ error: "This workflow isn't waiting for review." }, { status: 409 });
@@ -20,7 +22,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     plan = applyPlanEdits(w.plan as WorkflowPlan, edited ?? {});
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    // our own wording as-is; never a raw TypeError from a malformed body
+    const known = e instanceof UserFacingError || e instanceof RejectedRequestError;
+    return NextResponse.json({ error: known ? e.message : "This plan couldn't be read. Reload the page and try again." }, { status: 400 });
   }
   if (!(await claimRun(id, ["review"], "collecting", 15, plan)))
     return NextResponse.json({ error: "This workflow isn't waiting for review." }, { status: 409 });

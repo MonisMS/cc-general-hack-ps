@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { overUsageLimit } from "@/lib/db";
+import { overUsageLimit, refundUsage } from "@/lib/db";
+import { llmProviders } from "@/lib/llm";
 import { answer, askRows } from "@/lib/ask";
 import { authorize } from "@/lib/auth/access";
 
@@ -17,11 +18,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const ctx = await askRows(id);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!ctx.records.length) return NextResponse.json({ error: "This dataset has no records yet." }, { status: 400 });
+  if (!ctx.records.length) return NextResponse.json({ error: "This dataset has no records yet." }, { status: 409 });
+  // before the usage check, so a server with no AI configured never spends anyone's hourly questions
+  if (!llmProviders().length) return NextResponse.json({ error: "No LLM key configured, so questions can't be answered." }, { status: 503 });
   const limited = await overUsageLimit(access.user.id, "ai");
   if (limited) return NextResponse.json({ error: limited }, { status: 429 });
 
   const res = await answer(ctx, question);
-  if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
+  if (!res.ok) {
+    await refundUsage(access.user.id, "ai"); // a failed answer doesn't count against the hourly limit
+    return NextResponse.json({ error: res.error }, { status: res.status });
+  }
   return NextResponse.json({ answer: res.answer, record_ids: res.record_ids, rows_considered: res.rows_considered });
 }

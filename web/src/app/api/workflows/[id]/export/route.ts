@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 const csvCell = (v: unknown) => {
   let s = v == null ? "" : Array.isArray(v) ? v.join("; ") : typeof v === "object" ? JSON.stringify(v) : String(v);
   // scraped text starting with = + - @ would run as a formula in Excel/Sheets; a leading ' keeps it text
-  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d/.test(s)) s = `'${s}`;
+  // only a plain number is exempt: "-1+1|cmd" starts like one but is a formula
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

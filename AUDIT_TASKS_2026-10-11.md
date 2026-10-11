@@ -79,22 +79,22 @@ No logic changes except where a task says so. Each one is find-the-text, replace
 Monis's files (`llm.ts`, `extract.ts`, `validate.ts`, `planner.ts`) are in this list too. Hand them back to Monis if Monis is available.
 
 **Before the demo (do first)**
-- [ ] #1 Delete or hide the empty, junk and duplicate shared examples in the DB (owner_id IS NULL). Check the IDs listed in the audit.
+- [x] #1 Delete or hide the empty, junk and duplicate shared examples in the DB (owner_id IS NULL). Check the IDs listed in the audit.
 - [ ] #3 Set `RUN_LIMIT_PER_HOUR` / `AI_LIMIT_PER_HOUR` high in the demo env.
-- [ ] #2 `safety.ts`: fix the false positives and catch "pipe bomb" without the LLM.
-- [ ] #4 `null` JSON body → 500 on POST workflows, /run, /ask, /columns, PATCH.
-- [ ] #5, #6, #31 Run time budget: in-flight LLM calls, the top-up search and slow steps can exceed 300s.
-- [ ] #7 LLM failover on Gemini 400 / Anthropic credit 400 / empty SAFETY answer.
-- [ ] #8 Dedupe collapses list pages to 1 row (`validate.ts:287`).
+- [x] #2 `safety.ts`: fix the false positives and catch "pipe bomb" without the LLM.
+- [x] #4 `null` JSON body → 500 on POST workflows, /run, /ask, /columns, PATCH.
+- [x] #5, #6, #31 Run time budget: in-flight LLM calls, the top-up search and slow steps can exceed 300s.
+- [x] #7 LLM failover on Gemini 400 / Anthropic credit 400 / empty SAFETY answer.
+- [x] #8 Dedupe collapses list pages to 1 row (`validate.ts:287`).
 - [ ] #11 DDG/Bing scraping vs the robots.txt claim (fix the code or the claim; tell Aditya the wording).
 
 **Correctness (B)**
 - [ ] Connectors: #13, #14, #15 (CoinGecko), #16, #63 (jobs), #28, #29, #30, #32, #59, #60, #64, #65, #58 (robots)
 - [ ] Extraction / validation / planner: #17, #18, #19, #20, #21, #44, #45, #46, #47, #48, #67, #68, #69 + the morning items (7c missing must-include value; subject checks for keyword rows)
-- [ ] Run / refresh: #22, #23, #40, #41, #42, #43, #66
-- [ ] Cron: #24 (use `claimRun`, don't restart cancelled), #25 (daily vs 6h), constant-time secret compare (#70)
-- [ ] Security: #26 export formula `-1+1|cmd` (in Chaubey's export file; coordinate), #27 plan edits skip `blockedReason`, raw TypeError text, client keys in the plan
-- [ ] API: #49, #50, #51, #52, #53, #54, #55 (credit spent on failure), #56, ask 503 vs columns 502, "no records" 400 → 409 (#70)
+- [x] Run / refresh: #22, #23, #40, #41, #42, #43, #66 (sync-chain cleanup in #66 skipped: not a bug)
+- [x] Cron: #24 (use `claimRun`, don't restart cancelled), #25 (daily vs 6h), constant-time secret compare (#70)
+- [x] Security: #26 export formula `-1+1|cmd` (in Chaubey's export file; coordinate), #27 plan edits skip `blockedReason`, raw TypeError text, client keys in the plan
+- [x] API: #49, #50, #51, #52, #53, #54, #55 (credit spent on failure), #56, ask 503 vs columns 502, "no records" 400 → 409 (#70) (#50 skipped: covered by #41; watch select UI left to Chaubey)
 - [ ] #33 email verification (probably post-demo), #57 `schema.sql` re-runnable + prune usage_events
 
 **UI that needs logic (too tricky for a first task)**
