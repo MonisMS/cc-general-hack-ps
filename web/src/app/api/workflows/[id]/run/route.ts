@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const access = await authorize(id, "write");
   if (access instanceof Response) return access;
-  const { plan: edited } = await req.json().catch(() => ({}));
+  const { plan: edited } = (await req.json().catch(() => null)) ?? {};
   const [w] = await sql`SELECT status, plan FROM workflows WHERE id = ${id}`;
   if (!w) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (w.status !== "review") return NextResponse.json({ error: "This workflow isn't waiting for review." }, { status: 409 });

@@ -21,7 +21,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const access = await authorize(id, "read");
   if (access instanceof Response) return access;
-  const { question } = await req.json().catch(() => ({}));
+  const { question } = (await req.json().catch(() => null)) ?? {};
   if (typeof question !== "string" || question.trim().length < 3)
     return NextResponse.json({ error: "Ask a question about this dataset." }, { status: 400 });
 

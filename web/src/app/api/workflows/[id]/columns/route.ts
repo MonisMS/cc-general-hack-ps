@@ -34,7 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const access = await authorize(id, "write");
   if (access instanceof Response) return access;
-  const { question } = await req.json().catch(() => ({}));
+  const { question } = (await req.json().catch(() => null)) ?? {};
   if (typeof question !== "string" || question.trim().length < 3)
     return NextResponse.json({ error: "Describe what the new column should contain." }, { status: 400 });
   const q = question.trim().slice(0, 200);

@@ -21,7 +21,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const user = await requireUser();
   if (user instanceof Response) return user;
-  const { prompt, review } = await req.json().catch(() => ({}));
+  const { prompt, review } = (await req.json().catch(() => null)) ?? {};
   if (typeof prompt !== "string" || prompt.trim().length < 5)
     return NextResponse.json({ error: "Describe the data you need (at least a few words)." }, { status: 400 });
   const blocked = blockedReason(prompt);
