@@ -315,7 +315,8 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
     const keyFields = plan.dedupe_on.length ? plan.dedupe_on : [plan.fields[0].name];
     const parts = keyFields.map((k) => norm(data[k]));
     let key = parts.join("|");
-    if (parts.every((p) => !p)) key = norm(r.item.url);
+    // no dedupe value at all: page + name, since a list page ("Top 20 sponsors") holds many rows under one url
+    if (parts.every((p) => !p)) key = `${norm(r.item.url)}|${norm(data[idField])}`;
     // a half-empty key ("senior react developer|") would merge different companies' jobs: only within one page
     else if (parts.some((p) => !p)) key = `${norm(r.item.url)}|${key}`; // page first, so the 300-char cut keeps it
 
