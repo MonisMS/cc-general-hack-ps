@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Layers, Loader2, MoreHorizontal, PenSquare, Pin, PinOff, Plug, Trash2 } from "lucide-react";
+import { Layers, Loader2, Menu, MoreHorizontal, PenSquare, Pin, PinOff, Plug, Trash2 } from "lucide-react";
 import type { Workflow } from "@/lib/types";
 import { Logo } from "./Logo";
 import { StatusIcon } from "./StatusBadge";
@@ -48,7 +48,16 @@ const byPinThenNew = (a: Workflow, b: Workflow) =>
   Number(!a.owner_id) - Number(!b.owner_id) ||
   b.created_at.localeCompare(a.created_at);
 
+/** Desktop: a fixed column. On phones the same contents open as a drawer from MobileNav. */
 export function Sidebar() {
+  return (
+    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,var(--color-sidebar)_0%,var(--color-sidebar)_62%,color-mix(in_oklab,var(--color-sidebar)_55%,transparent)_100%)] px-2.5 py-3 md:flex">
+      <SidebarBody />
+    </aside>
+  );
+}
+
+function SidebarBody() {
   const pathname = usePathname();
   const router = useRouter();
   const [workflows, setWorkflows] = useWorkflows();
@@ -71,7 +80,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,var(--color-sidebar)_0%,var(--color-sidebar)_62%,color-mix(in_oklab,var(--color-sidebar)_55%,transparent)_100%)] px-2.5 py-3 md:flex">
+    <>
       <div className="flex items-center justify-between px-1.5">
         <Link href="/" className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-white/[0.04]">
           <Logo size={20} />
@@ -125,7 +134,7 @@ export function Sidebar() {
       <div className="mt-auto pt-3">
         <AccountMenu />
       </div>
-    </aside>
+    </>
   );
 }
 
@@ -176,7 +185,7 @@ function RecentItem({
     // fixed, in a portal: the row's fade-up animation leaves a transform that would otherwise position and clip it
     // inside the scrolling Recent list. Opens upward when the row is near the bottom of the screen.
     const height = 96;
-    setMenu({ top: r.bottom + 4 + height > window.innerHeight ? Math.max(8, r.top - 4 - height) : r.bottom + 4, left: Math.min(r.left, window.innerWidth - 216) });
+    setMenu({ top: r.bottom + 4 + height > window.innerHeight ? Math.max(8, r.top - 4 - height) : r.bottom + 4, left: Math.max(8, Math.min(r.left, document.documentElement.clientWidth - 216)) });
   }
 
   async function confirmDelete() {
@@ -311,34 +320,68 @@ function NavItem({
   );
 }
 
+const TITLES: [RegExp, string][] = [
+  [/^\/new/, "New request"],
+  [/^\/workflows\/./, "Workflow"],
+  [/^\/workflows/, "Workflows"],
+  [/^\/connect/, "Connect AI"],
+];
+
+/** Phones: a top bar (menu, page title, new request) and the full sidebar as a slide-in drawer. */
 export function MobileNav() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const title = TITLES.find(([re]) => re.test(pathname))?.[1] ?? "DataPilot";
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden"; // the page behind the drawer must not scroll
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    panelRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-canvas/90 px-4 py-2.5 backdrop-blur md:hidden">
-      <Link href="/" className="flex items-center gap-2">
-        <Logo size={20} />
-        <span className="text-[13.5px] font-semibold text-zinc-100">DataPilot</span>
-      </Link>
-      <nav className="flex items-center gap-1">
-        {[
-          { href: "/new", label: "New" },
-          { href: "/workflows", label: "Workflows" },
-        ].map(({ href, label }) => {
-          const active = pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`rounded-md px-2.5 py-1 text-[12.5px] ${active ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400"}`}
-            >
-              {label}
-            </Link>
-          );
-        })}
-        <span className="ml-1">
-          <AccountMenu compact />
-        </span>
-      </nav>
-    </header>
+    <>
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-canvas/90 px-2 backdrop-blur md:hidden">
+        <button
+          type="button"
+          aria-label="Open menu"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+        >
+          <Menu className="h-5 w-5" aria-hidden />
+        </button>
+        <span className="min-w-0 flex-1 truncate text-center text-[14px] font-medium text-zinc-100">{title}</span>
+        <Link
+          href="/new"
+          aria-label="New request"
+          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+        >
+          <PenSquare className="h-[18px] w-[18px]" aria-hidden />
+        </Link>
+      </header>
+
+      {open && (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <div className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setOpen(false)} aria-hidden />
+          <div
+            ref={panelRef}
+            // any link inside (nav, a recent workflow, new request) navigates away, so the drawer closes with it
+            onClickCapture={(e) => (e.target as HTMLElement).closest("a") && setOpen(false)}
+            className="animate-drawer-in absolute inset-y-0 left-0 flex w-[284px] max-w-[85vw] flex-col border-r border-line bg-[var(--color-sidebar)] px-2.5 pb-3 pt-3 shadow-2xl"
+          >
+            <SidebarBody />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

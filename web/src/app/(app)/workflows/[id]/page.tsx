@@ -450,7 +450,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
       {/* Data first: tabs span the full width */}
       <div className="mt-6">
         <section className="min-w-0" aria-label="Dataset">
-          <div className="mb-4 flex gap-1 border-b border-line">
+          <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
             <TabBtn active={tab === "data"} onClick={() => setTab("data")} icon={Table2} label="Data" count={recordCount} />
             <TabBtn active={tab === "insights"} onClick={() => setTab("insights")} icon={BarChart3} label="Insights" count={recordCount} />
             <TabBtn active={tab === "sources"} onClick={() => setTab("sources")} icon={Plug} label="Sources" count={detail.sources.length} />
@@ -576,7 +576,7 @@ function TabBtn({
   return (
     <button
       onClick={onClick}
-      className={`-mb-px inline-flex items-center gap-1.5 border-b px-3 py-2 text-[13px] transition ${
+      className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b px-3 py-2 text-[13px] transition ${
         active ? "border-zinc-200 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300"
       }`}
     >
