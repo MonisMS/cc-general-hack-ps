@@ -79,13 +79,13 @@ No logic changes except where a task says so. Each one is find-the-text, replace
 Monis's files (`llm.ts`, `extract.ts`, `validate.ts`, `planner.ts`) are in this list too. Hand them back to Monis if Monis is available.
 
 **Before the demo (do first)**
-- [ ] #1 Delete or hide the empty, junk and duplicate shared examples in the DB (owner_id IS NULL). Check the IDs listed in the audit.
+- [x] #1 Delete or hide the empty, junk and duplicate shared examples in the DB (owner_id IS NULL). Check the IDs listed in the audit.
 - [ ] #3 Set `RUN_LIMIT_PER_HOUR` / `AI_LIMIT_PER_HOUR` high in the demo env.
-- [ ] #2 `safety.ts`: fix the false positives and catch "pipe bomb" without the LLM.
-- [ ] #4 `null` JSON body → 500 on POST workflows, /run, /ask, /columns, PATCH.
-- [ ] #5, #6, #31 Run time budget: in-flight LLM calls, the top-up search and slow steps can exceed 300s.
-- [ ] #7 LLM failover on Gemini 400 / Anthropic credit 400 / empty SAFETY answer.
-- [ ] #8 Dedupe collapses list pages to 1 row (`validate.ts:287`).
+- [x] #2 `safety.ts`: fix the false positives and catch "pipe bomb" without the LLM.
+- [x] #4 `null` JSON body → 500 on POST workflows, /run, /ask, /columns, PATCH.
+- [x] #5, #6, #31 Run time budget: in-flight LLM calls, the top-up search and slow steps can exceed 300s.
+- [x] #7 LLM failover on Gemini 400 / Anthropic credit 400 / empty SAFETY answer.
+- [x] #8 Dedupe collapses list pages to 1 row (`validate.ts:287`).
 - [ ] #11 DDG/Bing scraping vs the robots.txt claim (fix the code or the claim; tell Aditya the wording).
 
 **Correctness (B)**
