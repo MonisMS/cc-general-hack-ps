@@ -14,7 +14,7 @@ export async function GET() {
   const workflows = await sql`
     SELECT w.*, (SELECT count(*)::int FROM records r WHERE r.workflow_id = w.id) AS record_count
     FROM workflows w WHERE w.owner_id = ${user.id} OR w.owner_id IS NULL
-    ORDER BY (w.owner_id IS NULL), w.created_at DESC LIMIT 200`;
+    ORDER BY (w.pinned_at IS NULL), w.pinned_at DESC, (w.owner_id IS NULL), w.created_at DESC LIMIT 200`;
   return NextResponse.json({ workflows });
 }
 

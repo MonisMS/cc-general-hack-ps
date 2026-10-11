@@ -16,3 +16,6 @@ ALTER TABLE sources ADD COLUMN IF NOT EXISTS pages JSONB;
 -- per-user hourly caps on runs and Ask / AI-column calls (credits are limited)
 CREATE TABLE IF NOT EXISTS usage_events (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS usage_events_user_kind_idx ON usage_events (user_id, kind, created_at DESC);
+
+-- sidebar pin; NULL = not pinned, the timestamp keeps pin order
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;
