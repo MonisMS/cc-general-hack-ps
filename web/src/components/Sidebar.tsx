@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Layers, PenSquare } from "lucide-react";
+import { Plug } from "lucide-react";
 import type { Workflow } from "@/lib/types";
 import { Logo } from "./Logo";
 import { StatusIcon } from "./StatusBadge";
@@ -71,6 +72,9 @@ export function Sidebar() {
           trailing={workflows?.length ? String(workflows.length) : undefined}
         >
           Workflows
+        </NavItem>
+        <NavItem href="/connect" active={pathname === "/connect"} icon={<Plug className="h-3.5 w-3.5" />}>
+          Connect AI
         </NavItem>
       </nav>
 

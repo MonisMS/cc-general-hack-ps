@@ -5,7 +5,7 @@ import { getAuth } from "@/lib/auth/server";
 // It runs on every page (not just protected ones) because an OAuth sign-in returns with a one-time
 // `neon_auth_session_verifier` code that must be exchanged for the session cookie wherever it lands.
 // API routes check the session themselves (they must answer 401 JSON, not redirect).
-const PROTECTED = ["/new", "/workflows"];
+const PROTECTED = ["/new", "/workflows", "/connect"];
 const OAUTH_VERIFIER = "neon_auth_session_verifier";
 
 export default function proxy(req: NextRequest) {

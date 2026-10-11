@@ -16,3 +16,7 @@ ALTER TABLE sources ADD COLUMN IF NOT EXISTS pages JSONB;
 -- per-user hourly caps on runs and Ask / AI-column calls (credits are limited)
 CREATE TABLE IF NOT EXISTS usage_events (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS usage_events_user_kind_idx ON usage_events (user_id, kind, created_at DESC);
+
+-- personal API keys for the MCP server (/api/mcp). Only a SHA-256 of the key is stored; the key is shown once.
+CREATE TABLE IF NOT EXISTS api_keys (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_used_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ);
+CREATE INDEX IF NOT EXISTS api_keys_user_idx ON api_keys (user_id, created_at DESC);
