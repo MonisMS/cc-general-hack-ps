@@ -21,6 +21,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const { data, isPending } = authClient.useSession();
   const [open, setOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [signOutError, setSignOutError] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,12 +38,15 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 
   async function signOut() {
     setLeaving(true);
+    setSignOutError(false);
     try {
-      await authClient.signOut();
-      router.replace("/auth/sign-in");
+      const res = await authClient.signOut();
+      if (res?.error) throw new Error("sign-out failed");
+      router.replace("/auth/sign-in"); // spinner stays on until the page changes, so a second click can't land
       router.refresh();
-    } finally {
+    } catch {
       setLeaving(false); // a failed sign-out must not leave the spinner on
+      setSignOutError(true);
     }
   }
 
@@ -109,6 +113,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
           >
             {leaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <LogOut className="h-3.5 w-3.5" aria-hidden />} Sign out
           </button>
+          {signOutError && <p role="alert" className="px-2.5 pb-1 pt-1.5 text-[12px] text-danger-soft">Couldn&apos;t sign out. Try again.</p>}
         </div>
       )}
     </div>

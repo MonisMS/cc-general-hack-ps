@@ -211,7 +211,7 @@ function Row({
   const running = isRunning(w.status);
   const isExample = w.owner_id === null; // shared read-only example: can be rerun but not deleted
   const meta = [
-    w.status === "completed" ? `${w.record_count ?? 0} ${w.record_count === 1 ? "row" : "rows"}` : running ? `${w.progress}% · ${statusLabel(w.status)}` : w.status === "failed" ? "Failed" : w.status === "review" ? "Awaiting your review" : null,
+    w.status === "completed" ? `${w.record_count ?? 0} ${w.record_count === 1 ? "row" : "rows"}` : running ? `${w.progress}% · ${statusLabel(w.status)}` : w.status === "failed" ? "Failed" : w.status === "review" ? "Needs review" : null,
     sources.length ? sources.slice(0, 3).join(", ") + (sources.length > 3 ? ` +${sources.length - 3}` : "") : null,
   ].filter(Boolean);
   return (

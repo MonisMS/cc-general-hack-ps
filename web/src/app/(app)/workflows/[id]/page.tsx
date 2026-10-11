@@ -239,6 +239,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   const lastActivity = Math.max(new Date(w.updated_at).getTime() || 0, new Date(detail.events.at(-1)?.created_at ?? 0).getTime() || 0);
   // 7 minutes: just past the server's 6-minute stuck cutoff (failStuckWorkflows), so Retry can't start a second run beside a live one
   const stuck = running && now - lastActivity > 420_000;
+  const sourcesEmpty = detail.sources.filter((x) => x.status === "empty").length;
   const sourcesTotal = Math.max(detail.sources.length, sourcesOk + sourcesFailed); // includes sources that returned nothing
 
   return (
@@ -439,7 +440,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         <Stat
           label="Sources"
           value={running && !sourcesTotal ? "—" : <>{sourcesOk}<span className="text-zinc-600"> / {sourcesTotal}</span></>}
-          sub={running && !sourcesTotal ? undefined : sourcesFailed ? `${sourcesFailed} failed` : sourcesOk < sourcesTotal ? `${sourcesTotal - sourcesOk} returned nothing` : "all responded"}
+          sub={running && !sourcesTotal ? undefined : sourcesFailed ? `${sourcesFailed} failed` : sourcesEmpty ? `${sourcesEmpty} returned nothing` : "all responded"}
         />
         <Stat label="Duplicates merged" value={running && s.duplicates === undefined ? "—" : (s.duplicates ?? 0)} />
         <Stat label="Invalid dropped" value={running && s.invalid === undefined ? "—" : (s.invalid ?? 0)} />
