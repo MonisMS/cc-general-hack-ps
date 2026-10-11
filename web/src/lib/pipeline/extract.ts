@@ -9,7 +9,8 @@ export interface Extracted {
   item: RawItem;
   relevance: number; // 0..1
   why?: string; // one-line evidence for why the row matches the request
-  checks?: (boolean | null)[]; // per plan.filters entry: met / violated / unknown
+  checks?: (boolean | null)[]; // per plan.filters entry: met / violated / unknown; absent when the AI gave none
+  reasons?: (string | null)[]; // per plan.filters entry: the evidence behind that verdict
   quote?: string; // excerpt copied from the item as evidence
   quoteVerified?: boolean; // the excerpt really occurs in the item (checked in code, not by the model)
   method?: "keyword"; // built by the keyword fallback, not the AI
@@ -71,26 +72,67 @@ Rules:
 - Drop rows about disambiguation pages, navigation pages, or generic words rather than real entities.
 - "why" = one short sentence (max 25 words) citing the concrete evidence from the item that makes this row match the intent.
 - "quote" = a short excerpt (10-35 words) copied EXACTLY, character for character, from the item that proves the row's key facts.
-- "checks" = one entry per constraint, in order: true if the item shows it is met, false if it shows it is violated, null if the item doesn't say. Use [] when there are no constraints.
+- "checks" = an object with one entry per constraint, keyed by its number: [verdict, reason]. verdict is true if the item shows it is met, false if it shows it is violated, null if the item doesn't say. reason = the concrete evidence in at most 8 words (e.g. "posted 3 days ago", "office in Berlin only"); leave it out when the verdict is null. Use {} when there are no constraints.
 - Location constraints: a row located in a different city/state/country is false. A remote role counts as met only if the constraint itself allows remote AND the role is open to people in the named place (e.g. "Remote, Europe only" fails "India or remote").
-Return {"rows": [{"item": <ITEM number>, "relevance": number, "why": string, "quote": string, "checks": [true|false|null], "data": {<schema fields>}}]}`;
-  const res = await llmJSON<{ rows: ModelRow[] }>(system, items.map((it, i) => describeItem(i, it, planTerms(plan))).join("\n\n"), outputBudget(items));
+Return {"rows": [{"item": <ITEM number>, "relevance": number, "why": string, "quote": string, "checks": {"1": [true, "reason"], "2": [null]}, "data": {<schema fields>}}]}`;
+  const res = await llmJSON<{ rows: ModelRow[] }>(system, items.map((it, i) => describeItem(i, it, planTerms(plan))).join("\n\n"), outputBudget(items, plan.filters.length));
   if (!res) return null;
-  return toExtracted(res.rows ?? [], items);
+  return toExtracted(res.rows ?? [], items, plan.filters.length);
 }
 
-type ModelRow = { item: number | string; relevance: number; why?: string; quote?: string; checks?: unknown[]; data: Record<string, unknown> };
+type ModelRow = { item: number | string; relevance: number; why?: string; quote?: string; checks?: unknown; data: Record<string, unknown> };
 
 const MAX_ROWS_PER_PAGE = 8;
 
-/** Output room for a batch: about one row per structured item, up to MAX_ROWS_PER_PAGE rows (~220 tokens each) per page. */
-const outputBudget = (items: RawItem[]) =>
-  Math.min(12_000, Math.max(2500, 400 + items.reduce((n, it) => n + (PAGE_SOURCES.has(it.source) ? MAX_ROWS_PER_PAGE * 220 : 300), 0)));
+/** Output room for a batch: about one row per structured item, up to MAX_ROWS_PER_PAGE rows per page; each row is
+ *  ~220 tokens plus ~14 per constraint for its verdict and short reason. */
+const outputBudget = (items: RawItem[], constraints: number) => {
+  const row = 220 + 14 * constraints;
+  return Math.min(12_000, Math.max(2500, 400 + items.reduce((n, it) => n + (PAGE_SOURCES.has(it.source) ? MAX_ROWS_PER_PAGE * row : row + 80), 0)));
+};
+
+const REASON_MAX = 120;
+
+/** One verdict as the model wrote it: [true, "reason"], true, null, {"met": true, "reason": "…"} or "yes"/"no". */
+function verdictOf(v: unknown): [boolean | null, string | null] {
+  let met: unknown = v;
+  let reason: unknown = null;
+  if (Array.isArray(v)) [met, reason] = v;
+  else if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    met = o.met ?? o.ok ?? o.verdict ?? o.value ?? null;
+    reason = o.reason ?? o.why ?? null;
+  }
+  if (typeof met === "string") met = /^(true|yes|met)$/i.test(met) ? true : /^(false|no|not met)$/i.test(met) ? false : null;
+  const text = typeof reason === "string" ? reason.replace(/\s+/g, " ").trim().slice(0, REASON_MAX) : "";
+  return [typeof met === "boolean" ? met : null, text || null];
+}
+
+/**
+ * Verdicts aligned with plan.filters. Keyed answers ({"1": …, "2": …}) can't drift; a bare array is only trusted
+ * when it has exactly one entry per constraint, since a skipped entry would move every later verdict onto the
+ * wrong constraint. Anything else counts as "no verdicts" rather than a guess.
+ */
+export function parseChecks(raw: unknown, constraints: number): Pick<Extracted, "checks" | "reasons"> {
+  if (!constraints || raw == null) return {};
+  let entries: unknown[];
+  if (Array.isArray(raw)) {
+    if (raw.length !== constraints) return {};
+    entries = raw;
+  } else if (typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    entries = Array.from({ length: constraints }, (_, i) => o[i + 1] ?? o[`c${i + 1}`]);
+    if (entries.every((e) => e === undefined)) return {};
+  } else return {};
+  const parsed = entries.map(verdictOf);
+  const reasons = parsed.map(([, r]) => r);
+  return { checks: parsed.map(([c]) => c), ...(reasons.some(Boolean) ? { reasons } : {}) };
+}
 
 // some models write the item number as a string ("0"); anything else that isn't a whole number is not an item
 const itemIndex = (r: ModelRow): number => (typeof r.item === "string" ? (/^\d+$/.test(r.item) ? Number(r.item) : NaN) : r.item);
 
-function toExtracted(rows: ModelRow[], items: RawItem[]): Extracted[] {
+function toExtracted(rows: ModelRow[], items: RawItem[], constraints: number): Extracted[] {
   return rows
     .filter((r) => r && r.data && Number.isInteger(itemIndex(r)) && items[itemIndex(r)])
     .map((r) => ({
@@ -98,7 +140,7 @@ function toExtracted(rows: ModelRow[], items: RawItem[]): Extracted[] {
       item: items[itemIndex(r)],
       relevance: clamp(r.relevance ?? 0.7),
       why: typeof r.why === "string" ? r.why : undefined,
-      checks: Array.isArray(r.checks) ? r.checks.map((c) => (typeof c === "boolean" ? c : null)) : undefined,
+      ...parseChecks(r.checks, constraints),
       ...verifyQuote(r.quote, items[itemIndex(r)]),
     }));
 }
@@ -163,7 +205,7 @@ async function llmExtract(plan: WorkflowPlan, items: RawItem[], notes: string[],
       const b = a.error ? { rows: [], missed: items.slice(mid), error: a.error } : await half(items.slice(mid));
       return { rows: [...a.rows, ...b.rows], missed: [...a.missed, ...b.missed], error: a.error ?? b.error };
     }
-    const rows = toExtracted(salvageRows(e.partial), items);
+    const rows = toExtracted(salvageRows(e.partial), items, plan.filters.length);
     const reached = rows.reduce((n, r) => Math.max(n, items.indexOf(r.item)), -1);
     const missed = items.slice(reached + 1);
     notes.push(`The AI answer ${what}: kept ${rows.length} complete row${rows.length === 1 ? "" : "s"}, ${missed.length} page${missed.length === 1 ? "" : "s"} matched by keywords`);
