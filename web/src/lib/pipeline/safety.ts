@@ -30,7 +30,8 @@ const RULES: [RegExp, string][] = [
   ],
   [
     // checked here too, so the rule-based planner (no LLM) can't run it
-    /\b(pipe ?bombs?|nail bombs?|molotov cocktails?|napalm|ricin|sarin|nerve agents?)\b|\b(how (to|do i|can i)|instructions (for|to)|recipe for|homemade|(make|build) (a|an|my own))\b.{0,30}\b(?<!bath )(bombs?|explosives?|ieds?)\b/i,
+    // the verb must sit right next to the weapon: "make a list of box office bombs" is a normal request
+    /\b(pipe ?bombs?|nail bombs?|molotov cocktails?|napalm|ricin|sarin|nerve agents?)\b|\bhow (to|do i|can i) (make|build|assemble) (a |an )?(bombs?|explosives?|ieds?)\b|\bhomemade (bombs?|explosives?)\b/i,
     "it asks how to make weapons or explosives",
   ],
 ];

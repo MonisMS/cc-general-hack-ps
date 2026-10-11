@@ -319,6 +319,8 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     await (async () => {
       if (e instanceof CancelledError) {
         if (e.superseded) return;
+        // the rows this run collected so far are kept, so its sources are the ones that explain them
+        if (opts.refresh && startedAt) await keepSources(id, startedAt, "new");
         const [{ c }] = await sql`SELECT count(*)::int AS c FROM records WHERE workflow_id = ${id}`;
         return void (await logEvent(id, "cancel", `Stopped by you. ${c} rows collected so far were kept.`, "warn"));
       }

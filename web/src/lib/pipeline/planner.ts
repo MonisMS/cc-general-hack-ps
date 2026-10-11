@@ -249,7 +249,10 @@ export function applyPlanEdits(original: WorkflowPlan, edited: Partial<WorkflowP
   if (!fields.length) throw new UserFacingError("Keep at least one column.");
   if (!sources.length) throw new UserFacingError("Keep at least one source.");
   const filters = (Array.isArray(edited.filters) ? edited.filters : original.filters).map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 8);
-  const blocked = blockedReason([...sources.map((s) => s.query), ...filters, ...fields.map((f) => f.description)].join("\n"));
+  // only text the user typed: the planner's own wording already passed (the prompt check and the LLM's judgement)
+  const before = new Set([...original.sources.map((s) => s.query), ...original.filters, ...original.fields.map((f) => f.description)]);
+  const typed = [...sources.map((s) => s.query), ...filters, ...fields.map((f) => f.description)].filter((t) => !before.has(t));
+  const blocked = blockedReason(typed.join("\n"));
   if (blocked) throw new RejectedRequestError(blocked);
   const dedupe = original.dedupe_on.filter((d) => fields.some((f) => f.name === d));
   // a filter whose text the user changed is no longer known to define the subject, so it becomes a detail filter
