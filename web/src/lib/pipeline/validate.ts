@@ -1,4 +1,4 @@
-import { CHECKS_KEY, FIELD_SOURCES_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DropReasons, type FieldSpec, type WorkflowPlan } from "../types";
+import { CHECK_REASONS_KEY, CHECK_SOURCES_KEY, CHECKS_KEY, FIELD_SOURCES_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DropReasons, type FieldSpec, type WorkflowPlan } from "../types";
 import type { Extracted } from "./extract";
 
 export interface CleanRow {
@@ -228,6 +228,32 @@ function score(plan: WorkflowPlan, idField: string, data: Record<string, unknown
   return Math.round(s * 100) / 100;
 }
 
+/**
+ * After a merge: fill the kept row's "not stated" verdicts from the other page's, with their reasons, and remember
+ * which page each borrowed verdict came from. The kept page's own ✓ and ✗ are never overwritten. Returns how many
+ * filters the merged row now fails.
+ */
+function mergeChecks(n: number, keep: CleanRow, other: CleanRow): number {
+  const mine = keep.data[CHECKS_KEY] as (boolean | null)[] | undefined;
+  const theirs = other.data[CHECKS_KEY] as (boolean | null)[] | undefined;
+  if (!n || !theirs?.length) return mine?.filter((c) => c === false).length ?? 0;
+  const checks = mine?.length ? [...mine] : Array<boolean | null>(n).fill(null);
+  const reasons = [...((keep.data[CHECK_REASONS_KEY] as (string | null)[] | undefined) ?? Array<string | null>(n).fill(null))];
+  const theirReasons = other.data[CHECK_REASONS_KEY] as (string | null)[] | undefined;
+  const from = { ...((keep.data[CHECK_SOURCES_KEY] as Record<string, string>) ?? {}) };
+  for (let i = 0; i < n; i++) {
+    if (checks[i] != null || theirs[i] == null) continue;
+    checks[i] = theirs[i];
+    reasons[i] = theirReasons?.[i] ?? null;
+    const url = (other.data[CHECK_SOURCES_KEY] as Record<string, string> | undefined)?.[i] ?? other.source_url;
+    if (url !== keep.source_url) from[i] = url;
+  }
+  keep.data[CHECKS_KEY] = checks;
+  if (reasons.some(Boolean)) keep.data[CHECK_REASONS_KEY] = reasons;
+  if (Object.keys(from).length) keep.data[CHECK_SOURCES_KEY] = from;
+  return checks.filter((c) => c === false).length;
+}
+
 // Rows the extractor (or keyword fallback) scores below this are not the requested thing.
 const MIN_RELEVANCE = 0.4;
 // Keyword rows score the share of request words they contain: a right row often has 2 of 8 (0.25), so they get
@@ -262,8 +288,8 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
     // no name, rows the extractor rated as not being the requested thing, and rows that fail a subject filter
     // ("must be a React role"): a sales job is not a weaker match for "React jobs", it is no match.
     const failed = plan.filters.filter((_, i) => r.checks?.[i] === false);
-    // checks are matched to filters by position: only trust a "fails the subject" verdict when the model gave one
-    // check per filter, or a skipped check would shift "remote: false" onto the subject filter
+    // parseChecks only returns verdicts it could align with the filters; the length check keeps any other caller
+    // from shifting "remote: false" onto the subject filter
     const offSubject = r.checks?.length === plan.filters.length && failed.some((f) => subject.has(f));
     const minRelevance = r.method === "keyword" ? KEYWORD_MIN_RELEVANCE : MIN_RELEVANCE;
     if (data[idField] == null || r.relevance < minRelevance || offSubject) {
@@ -281,8 +307,10 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
       data[QUOTE_OK_KEY] = !!r.quoteVerified;
     }
     if (r.method) data[METHOD_KEY] = r.method;
-    if (plan.filters.length && r.checks?.length)
+    if (plan.filters.length && r.checks?.length) {
       data[CHECKS_KEY] = plan.filters.map((_, i) => (typeof r.checks![i] === "boolean" ? r.checks![i] : null));
+      if (r.reasons?.some(Boolean)) data[CHECK_REASONS_KEY] = plan.filters.map((_, i) => r.reasons![i] ?? null);
+    }
 
     const keyFields = plan.dedupe_on.length ? plan.dedupe_on : [plan.fields[0].name];
     const parts = keyFields.map((k) => norm(data[k]));
@@ -314,6 +342,7 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
         if (from !== keep.source_url) borrowed[f.name] = from;
       }
       if (Object.keys(borrowed).length) keep.data[FIELD_SOURCES_KEY] = borrowed;
+      b.failed = mergeChecks(plan.filters.length, keep, other);
       keep.confidence = score(plan, idField, keep.data, b.relevance, b.failed);
       out.set(row.dedupe_key, keep);
       basis.set(row.dedupe_key, b);

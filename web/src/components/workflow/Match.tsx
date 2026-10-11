@@ -1,9 +1,11 @@
 import { Fragment } from "react";
 import { BadgeCheck, Check, HelpCircle, Quote, X } from "lucide-react";
-import { CHECKS_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DataRecord, type FieldSpec } from "@/lib/types";
+import { CHECK_REASONS_KEY, CHECK_SOURCES_KEY, CHECKS_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DataRecord, type FieldSpec } from "@/lib/types";
+import { hostOf } from "@/components/utils";
 
 export const whyOf = (r: DataRecord) => (typeof r.data[WHY_KEY] === "string" ? (r.data[WHY_KEY] as string) : "");
 export const checksOf = (r: DataRecord) => (Array.isArray(r.data[CHECKS_KEY]) ? (r.data[CHECKS_KEY] as (boolean | null)[]) : []);
+const reasonsOf = (r: DataRecord) => (Array.isArray(r.data[CHECK_REASONS_KEY]) ? (r.data[CHECK_REASONS_KEY] as (string | null)[]) : []);
 
 /** Criteria passed, out of the ones the source could answer. Used for sorting. */
 export function matchScore(r: DataRecord): number | null {
@@ -19,9 +21,9 @@ function CheckIcon({ value, className = "h-3 w-3" }: { value: boolean | null; cl
 
 const stateLabel = (v: boolean | null) => (v === true ? "met" : v === false ? "not met" : "not stated in source");
 
-/** Compact table cell: one icon per criterion, then the reason. */
-export function MatchCell({ record, criteria }: { record: DataRecord; criteria: string[] }) {
-  const checks = checksOf(record);
+/** Compact table cell: one icon per criterion (unless the table shows them as their own columns), then the reason. */
+export function MatchCell({ record, criteria, showChecks = true }: { record: DataRecord; criteria: string[]; showChecks?: boolean }) {
+  const checks = showChecks ? checksOf(record) : [];
   const why = whyOf(record);
   if (!why && !checks.length) return <span className="text-zinc-700">—</span>;
   return (
@@ -55,13 +57,20 @@ export function MatchDetails({ record, criteria }: { record: DataRecord; criteri
       {why && <p className="mt-1.5 text-sm text-zinc-300">{why}</p>}
       {checks.length > 0 && (
         <ul className="mt-3 space-y-1.5">
-          {checks.map((c, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm">
-              <CheckIcon value={c} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span className={c === false ? "text-zinc-400" : "text-zinc-300"}>{criteria[i] ?? `Criterion ${i + 1}`}</span>
-              <span className="ml-auto shrink-0 text-[11px] text-zinc-500">{stateLabel(c)}</span>
-            </li>
-          ))}
+          {checks.map((c, i) => {
+            const reason = reasonsOf(record)[i];
+            const from = (record.data[CHECK_SOURCES_KEY] as Record<string, string> | undefined)?.[i];
+            return (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <CheckIcon value={c} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0">
+                  <span className={c === false ? "text-zinc-400" : "text-zinc-300"}>{criteria[i] ?? `Criterion ${i + 1}`}</span>
+                  {reason && <span className="block text-[12px] text-zinc-500">“{reason}”{from && ` (from ${hostOf(from)})`}</span>}
+                </span>
+                <span className="ml-auto shrink-0 text-[11px] text-zinc-500">{stateLabel(c)}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

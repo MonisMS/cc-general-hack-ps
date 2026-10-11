@@ -6,10 +6,11 @@ import type { DataRecord, FieldSpec } from "@/lib/types";
 import { connectorLabel, humanize } from "@/components/utils";
 import { Cell, ConfidenceBar, formatValue } from "./Cell";
 import { MatchCell, checksOf, matchScore, whyOf } from "./Match";
+import { CriterionCell, CriterionPopover, criterionRank, type OpenCriterion } from "./Criteria";
 import { RecordDrawer } from "./RecordDrawer";
 
 const PAGE = 25;
-type SortKey = string; // field name | "__match" | "__source" | "__confidence"
+type SortKey = string; // field name | "__match" | "__source" | "__confidence" | "__c<criterion index>"
 
 export function DataTable({
   records,
@@ -63,6 +64,8 @@ export function DataTable({
     }
   }
   const close = useCallback(() => setOpen(null), []);
+  const [crit, setCrit] = useState<OpenCriterion | null>(null);
+  const closeCrit = useCallback(() => setCrit(null), []);
 
   const fields: FieldSpec[] = useMemo(() => {
     if (planFields && planFields.length) return planFields;
@@ -71,7 +74,9 @@ export function DataTable({
     return [...keys].map((k) => ({ name: k, type: "string" as const, description: "" }));
   }, [planFields, records]);
 
-  const hasMatch = useMemo(() => records.some((r) => whyOf(r) || checksOf(r).length), [records]);
+  // each criterion gets its own column once any row has verdicts; the "why" column then only holds the reason
+  const showCriteria = useMemo(() => criteria.length > 0 && records.some((r) => checksOf(r).length), [criteria, records]);
+  const hasMatch = useMemo(() => records.some((r) => whyOf(r) || (!showCriteria && checksOf(r).length)), [records, showCriteria]);
   const sources = useMemo(() => [...new Set(records.map((r) => r.source_name))].sort(), [records]);
 
   const filtered = useMemo(() => {
@@ -99,7 +104,9 @@ export function DataTable({
             ? r.confidence
             : sort.key === "__match"
               ? matchScore(r)
-              : r.data[sort.key];
+              : sort.key.startsWith("__c")
+                ? criterionRank(r, Number(sort.key.slice(3)))
+                : r.data[sort.key];
       out = [...out].sort((a, b) => {
         const va = get(a);
         const vb = get(b);
@@ -274,6 +281,23 @@ export function DataTable({
                 {fields.map((f) => (
                   sortHead(f.name, humanize(f.name), f.ai, f.ai ? f.description : undefined)
                 ))}
+                {showCriteria &&
+                  criteria.map((c, i) => {
+                    const k = `__c${i}`;
+                    const active = sort?.key === k;
+                    return (
+                      <th key={k} className="px-1.5 py-2.5 font-medium">
+                        <button
+                          onClick={() => toggleSort(k)}
+                          title={`${c} (AI-judged; click to sort)`}
+                          className={`inline-flex max-w-[7.5rem] items-center gap-1 hover:text-zinc-200 ${active ? "text-zinc-200" : ""}`}
+                        >
+                          <span className="truncate">{c}</span>
+                          {active && (sort!.dir === 1 ? <ArrowUp className="h-3 w-3 shrink-0" /> : <ArrowDown className="h-3 w-3 shrink-0" />)}
+                        </button>
+                      </th>
+                    );
+                  })}
                 {hasMatch && sortHead("__match", "Why it matched")}
                 {sortHead("__source", "Source")}
                 {sortHead("__confidence", "Match score", false, "Heuristic score: relevance + filled columns. Not a probability.")}
@@ -309,9 +333,17 @@ export function DataTable({
                       <Cell value={r.data[f.name]} type={f.type} />
                     </td>
                   ))}
+                  {showCriteria &&
+                    criteria.map((c, ci) => (
+                      <td key={`__c${ci}`} className="px-1.5 py-1.5">
+                        <div className="flex justify-center">
+                          <CriterionCell record={r} index={ci} criterion={c} active={crit?.record.id === r.id && crit.index === ci} onOpen={setCrit} />
+                        </div>
+                      </td>
+                    ))}
                   {hasMatch && (
                     <td className="max-w-[320px] px-3 py-2.5">
-                      <MatchCell record={r} criteria={criteria} />
+                      <MatchCell record={r} criteria={criteria} showChecks={!showCriteria} />
                     </td>
                   )}
                   <td className="whitespace-nowrap px-3 py-2.5">
@@ -338,7 +370,7 @@ export function DataTable({
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={fields.length + (hasMatch ? 4 : 3)} className="px-3 py-10 text-center text-sm text-zinc-500">
+                  <td colSpan={fields.length + (showCriteria ? criteria.length : 0) + (hasMatch ? 4 : 3)} className="px-3 py-10 text-center text-sm text-zinc-500">
                     No records match your filters.
                   </td>
                 </tr>
@@ -376,6 +408,7 @@ export function DataTable({
         </div>
       </div>
 
+      <CriterionPopover open={crit} criteria={criteria} onClose={closeCrit} />
       <RecordDrawer record={open} fields={fields} criteria={criteria} onClose={close} />
     </div>
   );
