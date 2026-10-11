@@ -92,9 +92,9 @@ Monis's files (`llm.ts`, `extract.ts`, `validate.ts`, `planner.ts`) are in this 
 - [ ] Connectors: #13, #14, #15 (CoinGecko), #16, #63 (jobs), #28, #29, #30, #32, #59, #60, #64, #65, #58 (robots)
 - [ ] Extraction / validation / planner: #17, #18, #19, #20, #21, #44, #45, #46, #47, #48, #67, #68, #69 + the morning items (7c missing must-include value; subject checks for keyword rows)
 - [x] Run / refresh: #22, #23, #40, #41, #42, #43, #66 (sync-chain cleanup in #66 skipped: not a bug)
-- [ ] Cron: #24 (use `claimRun`, don't restart cancelled), #25 (daily vs 6h), constant-time secret compare (#70)
+- [x] Cron: #24 (use `claimRun`, don't restart cancelled), #25 (daily vs 6h), constant-time secret compare (#70)
 - [x] Security: #26 export formula `-1+1|cmd` (in Chaubey's export file; coordinate), #27 plan edits skip `blockedReason`, raw TypeError text, client keys in the plan
-- [ ] API: #49, #50, #51, #52, #53, #54, #55 (credit spent on failure), #56, ask 503 vs columns 502, "no records" 400 → 409 (#70)
+- [x] API: #49, #50, #51, #52, #53, #54, #55 (credit spent on failure), #56, ask 503 vs columns 502, "no records" 400 → 409 (#70) (#50 skipped: covered by #41; watch select UI left to Chaubey)
 - [ ] #33 email verification (probably post-demo), #57 `schema.sql` re-runnable + prune usage_events
 
 **UI that needs logic (too tricky for a first task)**
