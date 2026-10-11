@@ -1,6 +1,5 @@
 import { ExternalLink, Plug } from "lucide-react";
 import type { SourceRun } from "@/lib/types";
-import { StatusBadge } from "@/components/StatusBadge";
 import { connectorLabel, hostOf } from "@/components/utils";
 
 export function SourcesTable({ sources, running }: { sources: SourceRun[]; running: boolean }) {
@@ -20,7 +19,6 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
             <tr className="border-b border-white/5 text-left text-[11px] uppercase tracking-wider text-zinc-500">
               <th className="px-3 py-2.5 font-medium">Connector</th>
               <th className="px-3 py-2.5 font-medium">Query</th>
-              <th className="px-3 py-2.5 font-medium">Status</th>
               <th className="px-3 py-2.5 text-right font-medium">Items</th>
               <th className="px-3 py-2.5 text-right font-medium">Duration</th>
               <th className="px-3 py-2.5 font-medium">Pages found</th>
@@ -39,9 +37,6 @@ export function SourcesTable({ sources, running }: { sources: SourceRun[]; runni
                     {s.query || "—"}
                   </div>
                   {s.error && <div className="mt-1 text-xs text-danger">{s.error}</div>}
-                </td>
-                <td className="px-3 py-2.5">
-                  <StatusBadge status={s.status} />
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-200">{s.items}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-400">

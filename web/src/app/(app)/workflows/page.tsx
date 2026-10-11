@@ -219,10 +219,7 @@ function Row({
       <Link href={`/workflows/${w.id}`} className="absolute inset-0" aria-label={w.title || w.prompt} />
       <StatusIcon status={w.status} size={14} />
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13.5px] text-zinc-100">{w.title || w.prompt}</span>
-          {isExample && <span className="shrink-0 rounded-full border border-line-strong px-1.5 text-[11px] text-zinc-400">Example</span>}
-        </div>
+        <div className="truncate text-[13.5px] text-zinc-100">{w.title || w.prompt}</div>
         <div className="mt-0.5 truncate text-[12px] text-zinc-500">{meta.join("  ·  ")}</div>
         {running && (
           <div className="mt-2 h-[2px] w-40 overflow-hidden rounded-full bg-white/[0.06]">

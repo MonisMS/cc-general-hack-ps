@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { BadgeCheck, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { StatusIcon } from "@/components/StatusBadge";
 
 function subscribeReducedMotion(cb: () => void) {
@@ -105,10 +105,7 @@ export function DemoRun() {
                       </span>
                     </td>
                     <td className="animate-fade-up px-3">
-                      <span className="inline-flex items-center gap-1 text-zinc-400">
-                        <BadgeCheck className="h-3 w-3 text-success" aria-hidden />
-                        {r[3]}
-                      </span>
+                      <span className="text-zinc-400">{r[3]}</span>
                     </td>
                   </>
                 ) : (

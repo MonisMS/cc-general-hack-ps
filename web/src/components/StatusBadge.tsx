@@ -80,12 +80,3 @@ const LABELS: Record<string, string> = {
 };
 
 export const statusLabel = (status: string) => LABELS[status] ?? status;
-
-export function StatusBadge({ status, mono }: { status: WorkflowStatus | "ok" | "skipped" | string; mono?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] text-zinc-300">
-      <StatusIcon status={status} size={13} mono={mono} />
-      {statusLabel(status)}
-    </span>
-  );
-}
