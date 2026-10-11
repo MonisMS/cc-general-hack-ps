@@ -21,6 +21,15 @@ function GoogleMark() {
   );
 }
 
+/** A short message for the form: the auth server's own wording when it has one, else the fallback. */
+function authMessage(err: unknown, fallback: string): string {
+  const raw = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message ?? "") : "";
+  if (/fetch|network|load failed/i.test(raw)) return "Can't reach the sign-in server. Check your connection and try again.";
+  if (/already exists|already registered|in use/i.test(raw)) return "An account with this email already exists. Sign in instead.";
+  if (/invalid (email or )?password|invalid credentials|not found/i.test(raw)) return "Wrong email or password.";
+  return raw && raw.length < 160 ? raw : fallback;
+}
+
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"email" | "google" | null>(null);
@@ -34,11 +43,14 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     const password = String(f.get("password") ?? "");
     setBusy("email");
     setError(null);
-    const { error } = signUp
-      ? await authClient.signUp.email({ name: String(f.get("name") ?? "").trim() || email.split("@")[0], email, password })
-      : await authClient.signIn.email({ email, password });
-    if (error) {
-      setError(error.message || (signUp ? "Couldn't create your account." : "Wrong email or password."));
+    // the Neon Auth client throws on a 401/422 instead of returning `error`; both must unlock the form
+    try {
+      const { error } = signUp
+        ? await authClient.signUp.email({ name: String(f.get("name") ?? "").trim() || email.split("@")[0], email, password })
+        : await authClient.signIn.email({ email, password });
+      if (error) throw error;
+    } catch (err) {
+      setError(authMessage(err, signUp ? "Couldn't create your account. Try again." : "Wrong email or password."));
       setBusy(null);
       return;
     }
@@ -49,10 +61,12 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   async function google() {
     setBusy("google");
     setError(null);
-    // absolute URL: a bare path would be resolved against the auth server's origin, not this app
-    const { error } = await authClient.signIn.social({ provider: "google", callbackURL: `${window.location.origin}${AFTER_AUTH}` });
-    if (error) {
-      setError(error.message || "Google sign-in failed.");
+    try {
+      // absolute URL: a bare path would be resolved against the auth server's origin, not this app
+      const { error } = await authClient.signIn.social({ provider: "google", callbackURL: `${window.location.origin}${AFTER_AUTH}` });
+      if (error) throw error;
+    } catch (err) {
+      setError(authMessage(err, "Google sign-in failed. Try again, or use email."));
       setBusy(null);
     }
   }
