@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Layers, Loader2, MoreHorizontal, PenSquare, Pin, PinOff, Plug, Trash2 } from "lucide-react";
@@ -146,12 +147,14 @@ function RecentItem({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const mine = !!w.owner_id; // the list holds only the user's workflows plus shared examples (no owner), which are read-only
 
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
-    const onDoc = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && close();
+    // the menu lives in a portal, outside the row: a press in either one is not "outside"
+    const onDoc = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node) && close();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
@@ -170,7 +173,10 @@ function RecentItem({
     const r = e.currentTarget.getBoundingClientRect();
     setConfirming(false);
     setError(null);
-    setMenu({ top: r.bottom + 4, left: r.left }); // fixed, not absolute: the Recent list scrolls and would clip it
+    // fixed, in a portal: the row's fade-up animation leaves a transform that would otherwise position and clip it
+    // inside the scrolling Recent list. Opens upward when the row is near the bottom of the screen.
+    const height = 96;
+    setMenu({ top: r.bottom + 4 + height > window.innerHeight ? Math.max(8, r.top - 4 - height) : r.bottom + 4, left: Math.min(r.left, window.innerWidth - 216) });
   }
 
   async function confirmDelete() {
@@ -217,8 +223,10 @@ function RecentItem({
         <Pin aria-label="Pinned" className="mr-2 h-3 w-3 shrink-0 fill-current text-zinc-500 group-focus-within:hidden group-hover:hidden [@media(hover:none)]:hidden" />
       )}
 
-      {menu && (
+      {menu &&
+        createPortal(
         <div
+          ref={menuRef}
           role="menu"
           style={{ top: menu.top, left: menu.left }}
           className="animate-fade-up fixed z-50 w-52 rounded-xl border border-line-strong bg-raised p-1.5 shadow-[0_16px_40px_-12px_var(--color-zinc-950)]"
@@ -260,8 +268,9 @@ function RecentItem({
               </button>
             </>
           )}
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }
