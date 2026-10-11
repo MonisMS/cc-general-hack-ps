@@ -1,4 +1,4 @@
-import { CHECK_REASONS_KEY, CHECK_SOURCES_KEY, CHECKS_KEY, FIELD_SOURCES_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DropReasons, type FieldSpec, type WorkflowPlan } from "../types";
+import { CHECK_REASONS_KEY, CHECK_SOURCES_KEY, CHECKS_KEY, FIELD_SOURCES_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DropReasons, type FieldSpec, type RawItem, type WorkflowPlan } from "../types";
 import type { Extracted } from "./extract";
 
 export interface CleanRow {
@@ -265,6 +265,10 @@ const KEYWORD_MIN_RELEVANCE = 0.2;
  * that pass; `reasons.failed_filters` counts them (as flagged, not dropped). Unnamed rows, low-relevance rows and
  * rows failing a subject filter are dropped.
  */
+/** The source a row is stored under. CoinGecko's fallback rows come from Coinpaprika, so they say so; refresh
+ *  pruning (run.ts) matches on this same name. */
+export const sourceName = (it: RawItem) => (it.fields?.data_provider === "coinpaprika" ? "coinpaprika" : it.source);
+
 export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
   clean: CleanRow[];
   invalid: number;
@@ -322,7 +326,7 @@ export function validateAndDedupe(plan: WorkflowPlan, rows: Extracted[]): {
 
     const row: CleanRow = {
       data,
-      source_name: r.item.source,
+      source_name: sourceName(r.item),
       source_url: r.item.url,
       confidence: score(plan, idField, data, r.relevance, failed.length),
       dedupe_key: key.slice(0, 300),

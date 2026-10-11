@@ -61,7 +61,8 @@ export async function claimRun(workflowId: string, from: WorkflowStatus[], to: W
 }
 
 export class CancelledError extends Error {
-  constructor() {
+  // superseded: a newer run took over (or the workflow was deleted), so this run must not write to its log
+  constructor(readonly superseded = false) {
     super("Stopped by user");
   }
 }
@@ -72,7 +73,8 @@ export class CancelledError extends Error {
  */
 export async function assertNotCancelled(workflowId: string, runStartedAt?: string) {
   const [w] = await sql`SELECT status, stats->>'run_started_at' AS run FROM workflows WHERE id = ${workflowId}`;
-  if (!w || w.status === "cancelled" || (runStartedAt && w.run && w.run !== runStartedAt)) throw new CancelledError();
+  if (!w || (runStartedAt && w.run && w.run !== runStartedAt)) throw new CancelledError(true);
+  if (w.status === "cancelled") throw new CancelledError();
 }
 
 const RUNNING = ["queued", "planning", "collecting", "processing"];
