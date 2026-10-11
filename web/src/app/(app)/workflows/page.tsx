@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Database, Loader2, PenSquare, RotateCw, Search, Trash2 } from "lucide-react";
 import type { Workflow } from "@/lib/types";
-import { StatusIcon } from "@/components/StatusBadge";
+import { StatusIcon, statusLabel } from "@/components/StatusBadge";
 import { fetchJSON, isRunning, timeAgo, formatDateTime, connectorLabel } from "@/components/utils";
 
 const FILTERS = [
@@ -91,7 +91,7 @@ export default function WorkflowsPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex h-11 items-center gap-3 border-b border-line px-5">
+      <header className="flex min-h-11 flex-wrap items-center gap-2 border-b border-line px-5 py-1">
         <span className="text-[13px] text-zinc-200">Workflows</span>
         {actionError && (
           <button type="button" onClick={() => setActionError(null)} className="truncate text-[12.5px] text-danger-soft" title="Dismiss">
@@ -150,9 +150,9 @@ export default function WorkflowsPage() {
           <div>
             <Database className="mx-auto h-5 w-5 text-zinc-600" />
             <p className="mt-3 text-[13px] text-zinc-300">
-              {workflows.length === 0 ? "No workflows yet" : "Nothing matches these filters"}
+              {workflows.length === 0 ? (error ? "Couldn't load workflows" : "No workflows yet") : "Nothing matches these filters"}
             </p>
-            {workflows.length === 0 && (
+            {workflows.length === 0 && !error && (
               <Link href="/new" className="mt-1 inline-block text-[12.5px] text-zinc-500 hover:text-zinc-200">
                 Describe the data you need →
               </Link>
@@ -209,8 +209,9 @@ function Row({
 }) {
   const sources = [...new Set((w.plan?.sources ?? []).map((s) => connectorLabel(s.connector)))];
   const running = isRunning(w.status);
+  const isExample = w.owner_id === null; // shared read-only example: can be rerun but not deleted
   const meta = [
-    w.status === "completed" ? `${w.record_count ?? 0} rows` : running ? `${w.progress}% · ${w.status}` : w.status === "failed" ? "Failed" : w.status === "review" ? "Awaiting your review" : null,
+    w.status === "completed" ? `${w.record_count ?? 0} ${w.record_count === 1 ? "row" : "rows"}` : running ? `${w.progress}% · ${statusLabel(w.status)}` : w.status === "failed" ? "Failed" : w.status === "review" ? "Awaiting your review" : null,
     sources.length ? sources.slice(0, 3).join(", ") + (sources.length > 3 ? ` +${sources.length - 3}` : "") : null,
   ].filter(Boolean);
   return (
@@ -218,7 +219,10 @@ function Row({
       <Link href={`/workflows/${w.id}`} className="absolute inset-0" aria-label={w.title || w.prompt} />
       <StatusIcon status={w.status} size={14} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13.5px] text-zinc-100">{w.title || w.prompt}</div>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13.5px] text-zinc-100">{w.title || w.prompt}</span>
+          {isExample && <span className="shrink-0 rounded-full border border-line-strong px-1.5 text-[11px] text-zinc-400">Example</span>}
+        </div>
         <div className="mt-0.5 truncate text-[12px] text-zinc-500">{meta.join("  ·  ")}</div>
         {running && (
           <div className="mt-2 h-[2px] w-40 overflow-hidden rounded-full bg-white/[0.06]">
@@ -255,16 +259,18 @@ function Row({
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCw className="h-3.5 w-3.5" aria-hidden />}
         </button>
-        <button
-          type="button"
-          title="Delete"
-          aria-label={`Delete ${w.title || w.prompt}`}
-          onClick={onAskDelete}
-          disabled={busy}
-          className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-        </button>
+        {!isExample && (
+          <button
+            type="button"
+            title="Delete"
+            aria-label={`Delete ${w.title || w.prompt}`}
+            onClick={onAskDelete}
+            disabled={busy}
+            className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
       </div>
     </div>
   );

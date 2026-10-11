@@ -25,6 +25,13 @@ export function StatusIcon({ status, size = 14, mono = false }: { status: Workfl
         <path d="M4.5 7h5" className="stroke-zinc-400" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
     );
+  if (status === "review")
+    return (
+      <svg width={s} height={s} viewBox="0 0 14 14" aria-hidden>
+        <circle cx="7" cy="7" r="5.8" fill="none" className="stroke-amber-400" strokeWidth="1.4" />
+        <circle cx="7" cy="7" r="2" className="fill-amber-400" />
+      </svg>
+    );
   if (status === "cancelled")
     return (
       <svg width={s} height={s} viewBox="0 0 14 14" aria-hidden>
@@ -61,7 +68,7 @@ export function StatusIcon({ status, size = 14, mono = false }: { status: Workfl
 const LABELS: Record<string, string> = {
   queued: "Queued",
   planning: "Planning",
-  review: "Awaiting review",
+  review: "Needs review",
   collecting: "Collecting",
   processing: "Processing",
   completed: "Completed",
@@ -72,11 +79,13 @@ const LABELS: Record<string, string> = {
   skipped: "Skipped",
 };
 
+export const statusLabel = (status: string) => LABELS[status] ?? status;
+
 export function StatusBadge({ status, mono }: { status: WorkflowStatus | "ok" | "skipped" | string; mono?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] text-zinc-300">
       <StatusIcon status={status} size={13} mono={mono} />
-      {LABELS[status] ?? status}
+      {statusLabel(status)}
     </span>
   );
 }

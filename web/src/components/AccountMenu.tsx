@@ -37,9 +37,13 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 
   async function signOut() {
     setLeaving(true);
-    await authClient.signOut();
-    router.replace("/auth/sign-in");
-    router.refresh();
+    try {
+      await authClient.signOut();
+      router.replace("/auth/sign-in");
+      router.refresh();
+    } finally {
+      setLeaving(false); // a failed sign-out must not leave the spinner on
+    }
   }
 
   const user = data?.user;
