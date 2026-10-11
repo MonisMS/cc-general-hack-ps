@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { overUsageLimit, sql } from "@/lib/db";
-import { llmJSON } from "@/lib/llm";
+import { overUsageLimit, refundUsage, sql } from "@/lib/db";
+import { llmJSON, llmProviders } from "@/lib/llm";
 import { WHY_KEY, type FieldSpec, type DataRecord, type WorkflowPlan } from "@/lib/types";
 import { UNTRUSTED_RULE, untrusted } from "@/lib/pipeline/untrusted";
 import { rankRows } from "@/lib/pipeline/validate";
@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120; // batches run in parallel; each LLM attempt is capped at 25s so failover fits
 
 const MAX_ROWS = 60;
+const MAX_AI_COLUMNS = 6; // each one is a paid LLM pass over the table
 const BATCH = 30; // ≤ 2 LLM calls per column
 const clip = (v: unknown) => {
   const s = Array.isArray(v) ? v.join(", ") : v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -46,15 +47,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!plan) return NextResponse.json({ error: "This workflow has no plan." }, { status: 400 });
 
   // fill the rows the table shows first, in the plan's order
-  const records = rankRows(
+  const all = rankRows(
     plan,
     (await sql`SELECT id, data, source_url, confidence FROM records WHERE workflow_id = ${id} ORDER BY confidence DESC, id`) as DataRecord[],
-  ).slice(0, MAX_ROWS);
-  if (!records.length) return NextResponse.json({ error: "No records to enrich." }, { status: 400 });
+  );
+  const records = all.slice(0, MAX_ROWS);
+  if (!records.length) return NextResponse.json({ error: "No records to enrich." }, { status: 409 });
+  if (plan.fields.filter((f) => f.ai).length >= MAX_AI_COLUMNS)
+    return NextResponse.json({ error: `A dataset can have up to ${MAX_AI_COLUMNS} AI columns.` }, { status: 409 });
+  // before the usage check, so a server with no AI configured never spends anyone's hourly questions
+  if (!llmProviders().length) return NextResponse.json({ error: "No LLM key configured, so AI columns can't be filled." }, { status: 503 });
   const limited = await overUsageLimit(access.user.id, "ai");
   if (limited) return NextResponse.json({ error: limited }, { status: 429 });
 
+  // Reserve the column before any AI work, in one conditional statement: of two requests landing together (a
+  // double click, two tabs), only one gets the name, so they can't both append a column or write into one.
   const name = columnName(q, new Set(plan.fields.map((f) => f.name)));
+  const field: FieldSpec = { name, type: "string", description: q, ai: true };
+  const [reserved] = await sql`UPDATE workflows SET plan = jsonb_set(plan, '{fields}', (plan->'fields') || ${JSON.stringify([field])}::jsonb)
+    WHERE id = ${id} AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(plan->'fields') f WHERE f->>'name' = ${name} OR (f->>'ai' = 'true' AND f->>'description' = ${q}))
+      AND (SELECT count(*) FROM jsonb_array_elements(plan->'fields') f WHERE f->>'ai' = 'true') < ${MAX_AI_COLUMNS}
+    RETURNING id`;
+  if (!reserved) {
+    await refundUsage(access.user.id, "ai");
+    return NextResponse.json({ error: "This dataset already has that column, or it is being added right now." }, { status: 409 });
+  }
   const cols = plan.fields.map((f) => f.name);
   const system = `You are the enrichment agent of a data platform. For every row, answer this question as a new spreadsheet column:
 "${q}"
@@ -85,15 +102,19 @@ Return {"answers": [{"id": number, "value": string|null, "basis": string}]}`;
       }
     }),
   );
-  if (!answers.size) return NextResponse.json({ error: "The AI couldn't fill this column right now. Try again in a minute." }, { status: 502 });
+  if (!answers.size) {
+    await sql`UPDATE workflows SET plan = jsonb_set(plan, '{fields}',
+      (SELECT COALESCE(jsonb_agg(f), '[]'::jsonb) FROM jsonb_array_elements(plan->'fields') f WHERE f->>'name' <> ${name})) WHERE id = ${id}`;
+    await refundUsage(access.user.id, "ai");
+    return NextResponse.json({ error: "The AI couldn't fill this column right now. Try again in a minute." }, { status: 502 });
+  }
 
   const updates = [...answers].map(([rid, a]) => ({ id: rid, patch: { [name]: a.value, [`_basis_${name}`]: a.basis } }));
   await sql`UPDATE records r SET data = r.data || u.patch
     FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb) AS u(id bigint, patch jsonb)
     WHERE r.id = u.id AND r.workflow_id = ${id}`;
-  const field: FieldSpec = { name, type: "string", description: q, ai: true };
-  await sql`UPDATE workflows SET plan = jsonb_set(plan, '{fields}', (plan->'fields') || ${JSON.stringify([field])}::jsonb), updated_at = now() WHERE id = ${id}`;
+  await sql`UPDATE workflows SET updated_at = now() WHERE id = ${id}`;
   await sql`INSERT INTO workflow_events (workflow_id, step, level, message)
-    VALUES (${id}, 'enrich', 'success', ${`AI column "${q}" filled for ${answers.size} of ${records.length} rows${failed ? ` (${failed} batch${failed > 1 ? "es" : ""} failed)` : ""}`})`;
-  return NextResponse.json({ field, filled: answers.size, total: records.length });
+    VALUES (${id}, 'enrich', 'success', ${`AI column "${q}" filled for ${answers.size} of ${records.length}${all.length > records.length ? ` top rows (of ${all.length})` : " rows"}${failed ? ` (${failed} batch${failed > 1 ? "es" : ""} failed)` : ""}`})`;
+  return NextResponse.json({ field, filled: answers.size, total: records.length, rows_total: all.length });
 }

@@ -26,8 +26,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Describe the data you need (at least a few words)." }, { status: 400 });
   const blocked = blockedReason(prompt);
   if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+  const text = prompt.trim().slice(0, 2000);
+  // a double submit (or two tabs) gets the workflow the first one just created, like Rerun
+  const [recent] = await sql`SELECT id FROM workflows WHERE owner_id = ${user.id} AND prompt = ${text}
+    AND created_at > now() - interval '15 seconds' ORDER BY created_at DESC LIMIT 1`;
+  if (recent) return NextResponse.json({ id: recent.id });
   const limited = await overUsageLimit(user.id, "run");
   if (limited) return NextResponse.json({ error: limited }, { status: 429 });
-  const id = await createWorkflow(prompt.trim().slice(0, 2000), { review: review === true, ownerId: user.id });
+  const id = await createWorkflow(text, { review: review === true, ownerId: user.id });
   return NextResponse.json({ id });
 }

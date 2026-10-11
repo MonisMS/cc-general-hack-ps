@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { overUsageLimit, sql } from "@/lib/db";
+import { overUsageLimit, refundUsage, sql } from "@/lib/db";
 import { friendlyReason } from "@/lib/errors";
-import { llmJSON } from "@/lib/llm";
+import { llmJSON, llmProviders } from "@/lib/llm";
 import { WHY_KEY, type DataRecord, type WorkflowPlan } from "@/lib/types";
 import { UNTRUSTED_RULE, untrusted } from "@/lib/pipeline/untrusted";
 import { rankRows } from "@/lib/pipeline/validate";
@@ -33,7 +33,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     plan,
     (await sql`SELECT id, data, source_name, confidence FROM records WHERE workflow_id = ${id} ORDER BY confidence DESC, id`) as DataRecord[],
   ).slice(0, MAX_ROWS);
-  if (!records.length) return NextResponse.json({ error: "This dataset has no records yet." }, { status: 400 });
+  if (!records.length) return NextResponse.json({ error: "This dataset has no records yet." }, { status: 409 });
+  // before the usage check, so a server with no AI configured never spends anyone's hourly questions
+  if (!llmProviders().length) return NextResponse.json({ error: "No LLM key configured, so questions can't be answered." }, { status: 503 });
   const limited = await overUsageLimit(access.user.id, "ai");
   if (limited) return NextResponse.json({ error: limited }, { status: 429 });
 
@@ -64,6 +66,7 @@ Return {"answer": string, "record_ids": number[]}`;
     return NextResponse.json({ answer: String(res.answer ?? "").trim() || "No answer.", record_ids: ids, rows_considered: records.length });
   } catch (e) {
     console.error("Ask failed", e);
+    await refundUsage(access.user.id, "ai");
     return NextResponse.json({ error: `The AI couldn't answer right now (${friendlyReason(e)}). Try again in a minute.` }, { status: 502 });
   }
 }

@@ -97,7 +97,10 @@ export async function failStuckWorkflows(minutes = 6) {
   lastStuckCheck = Date.now();
   await sql`UPDATE workflows SET status = 'failed', progress = 100, finished_at = now(), updated_at = now(),
       error = 'This run was interrupted (the server restarted or timed out). Use Rerun or Refresh to try again.'
-    WHERE status = ANY(${RUNNING}) AND updated_at < now() - make_interval(mins => ${minutes})`;
+    WHERE status = ANY(${RUNNING}) AND updated_at < now() - make_interval(mins => ${minutes})
+      -- a run still writing to its log is alive (a slow local run, a long collect step), whatever updated_at says
+      AND NOT EXISTS (SELECT 1 FROM workflow_events e WHERE e.workflow_id = workflows.id
+        AND e.created_at > now() - make_interval(mins => ${minutes}))`;
 }
 
 // Hourly caps per user. "run" = new workflow, Rerun or Refresh; "ai" = Ask question or AI column.
@@ -121,4 +124,9 @@ export async function overUsageLimit(userId: string, kind: keyof typeof LIMITS):
   const [{ mins }] = await sql`SELECT greatest(1, ceil(extract(epoch FROM min(created_at) + interval '1 hour' - now()) / 60))::int AS mins
     FROM usage_events WHERE user_id = ${userId} AND kind = ${kind} AND created_at > now() - interval '1 hour'`;
   return `You've reached the limit of ${max} ${LIMIT_LABEL[kind]} per hour. Try again in about ${mins ?? 60} minute${mins === 1 ? "" : "s"}.`;
+}
+
+/** Give back the use counted by overUsageLimit when the request then fails (busy AI, lost a race): only work done costs a use. */
+export async function refundUsage(userId: string, kind: keyof typeof LIMITS) {
+  await sql`DELETE FROM usage_events WHERE id = (SELECT id FROM usage_events WHERE user_id = ${userId} AND kind = ${kind} ORDER BY id DESC LIMIT 1)`;
 }
