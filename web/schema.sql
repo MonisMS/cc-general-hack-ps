@@ -17,6 +17,9 @@ ALTER TABLE sources ADD COLUMN IF NOT EXISTS pages JSONB;
 CREATE TABLE IF NOT EXISTS usage_events (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS usage_events_user_kind_idx ON usage_events (user_id, kind, created_at DESC);
 
+-- sidebar pin; NULL = not pinned, the timestamp keeps pin order
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;
+
 -- personal API keys for the MCP server (/api/mcp). Only a SHA-256 of the key is stored; the key is shown once.
 CREATE TABLE IF NOT EXISTS api_keys (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_used_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ);
 CREATE INDEX IF NOT EXISTS api_keys_user_idx ON api_keys (user_id, created_at DESC);

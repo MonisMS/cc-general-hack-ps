@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { CHECKS_KEY, WHY_KEY, type DataRecord, type WorkflowPlan } from "@/lib/types";
 import { authorize } from "@/lib/auth/access";
@@ -18,13 +19,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (access instanceof Response) return access;
   const format = new URL(req.url).searchParams.get("format") === "json" ? "json" : "csv";
   const [w] = await sql`SELECT title, prompt, plan FROM workflows WHERE id = ${id}`;
-  if (!w) return new Response("Not found", { status: 404 });
+  if (!w) return NextResponse.json({ error: "Not found" }, { status: 404 });
   // same order as the table: the plan's sort ("top by market cap"), then score
   const records = rankRows(
     w.plan as WorkflowPlan | null,
     (await sql`SELECT data, source_name, source_url, confidence, fetched_at FROM records WHERE workflow_id = ${id} ORDER BY confidence DESC, id`) as DataRecord[],
   );
-  const slug = String(w.title || "dataset").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
+  const slug = String(w.title || "dataset").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50).replace(/^-+|-+$/g, "") || "dataset"; // a title with no a-z/0-9 would otherwise be "-"
   const plan = w.plan as WorkflowPlan | null;
   const cols = plan?.fields.map((f) => f.name) ?? [...new Set(records.flatMap((r) => Object.keys(r.data)))].filter((k) => !k.startsWith("_"));
   const criteria = plan?.filters ?? [];
@@ -46,8 +47,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return new Response(body, { headers: { "content-type": "application/json", "content-disposition": `attachment; filename="${slug}.json"` } });
   }
   const header = [...cols, "why_matched", "criteria_met", "source", "source_url", "confidence", "fetched_at"];
-  const lines = [header.join(","), ...records.map((r) =>
+  const lines = [header.map(csvCell).join(","), ...records.map((r) =>
     [...cols.map((c) => r.data[c]), r.data[WHY_KEY], criteriaMet(r.data), r.source_name, r.source_url, r.confidence, new Date(r.fetched_at).toISOString()].map(csvCell).join(","))];
   // BOM so Excel reads UTF-8 (₹, €, accented names) instead of mangling it
-  return new Response("\uFEFF" + lines.join("\n"), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${slug}.csv"` } });
+  return new Response("\uFEFF" + lines.join("\r\n"), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${slug}.csv"` } });
 }

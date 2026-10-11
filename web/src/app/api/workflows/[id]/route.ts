@@ -34,7 +34,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const access = await authorize(id, "write");
   if (access instanceof Response) return access;
-  const { watch_hours } = await req.json().catch(() => ({}));
+  const { watch_hours, pinned } = (await req.json().catch(() => null)) ?? {};
+  if (typeof pinned === "boolean") {
+    // leaves updated_at alone: failStuckWorkflows reads it
+    const [p] = await sql`UPDATE workflows SET pinned_at = ${pinned ? new Date() : null} WHERE id = ${id} RETURNING pinned_at`;
+    if (!p) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, pinned_at: p.pinned_at });
+  }
   const hours = Number(watch_hours);
   if (!Number.isInteger(hours) || hours < 0 || hours > 24 * 30) return NextResponse.json({ error: "watch_hours must be 0–720" }, { status: 400 });
   const [w] = hours

@@ -123,7 +123,7 @@ export function RecordDrawer({
                 <span className="text-xs text-zinc-500">No source URL</span>
               )}
               <div className="flex items-center gap-2 text-xs text-zinc-500">
-                Confidence <ConfidenceBar value={record.confidence} />
+                Match score <ConfidenceBar value={record.confidence} />
               </div>
             </div>
           </div>

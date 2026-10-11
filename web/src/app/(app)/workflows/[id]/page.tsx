@@ -9,6 +9,7 @@ import {
   Eye,
   RefreshCw,
   BarChart3,
+  Check,
   ChevronDown,
   Copy,
   FileJson,
@@ -52,6 +53,8 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   const [records, setRecords] = useState<DataRecord[]>([]);
   const [recordsLoaded, setRecordsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gone, setGone] = useState<"missing" | "signed-out" | null>(null); // 404 / 401 from the detail fetch: polling stops
+  const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<Tab>("data");
   const [busy, setBusy] = useState<"rerun" | "refresh" | "delete" | "stop" | null>(null);
   const [pollKey, setPollKey] = useState(0); // bump to resume polling after review/refresh
@@ -76,7 +79,14 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
 
   const load = useCallback(async () => {
     try {
-      const j = await fetchJSON<Detail>(`/api/workflows/${id}`);
+      const res = await fetch(`/api/workflows/${id}`, { cache: "no-store" });
+      if (res.status === 404 || res.status === 401) {
+        setGone(res.status === 404 ? "missing" : "signed-out");
+        setError(null);
+        return "gone" as const;
+      }
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
+      const j = (await res.json()) as Detail;
       setDetail(j);
       setError(null);
       return j;
@@ -108,7 +118,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       const j = await load();
-      if (!alive) return;
+      if (!alive || j === "gone") return;
       const st = j?.workflow.status;
       if (st && !isRunning(st)) {
         loadRecords();
@@ -187,16 +197,18 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
     }
   }
 
-  if (!detail) {
+  if (!detail || gone) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-        {error ? (
+        {error || gone ? (
           <div className="mx-auto mt-16 max-w-md rounded-xl border border-danger/20 bg-danger/5 p-6 text-center">
             <XOctagon className="mx-auto h-7 w-7 text-danger" />
-            <p className="mt-3 text-sm text-zinc-200">Couldn&apos;t load this workflow</p>
-            <p className="mt-1 text-xs text-zinc-500">{error}</p>
-            <Link href="/workflows" className="mt-4 inline-block text-xs text-accent-soft hover:underline">
-              ← Back to workflows
+            <p className="mt-3 text-sm text-zinc-200">
+              {gone === "missing" ? "This workflow no longer exists" : gone === "signed-out" ? "Please sign in again" : "Couldn't load this workflow"}
+            </p>
+            {error && <p className="mt-1 text-xs text-zinc-500">{error}</p>}
+            <Link href={gone === "signed-out" ? "/auth/sign-in" : "/workflows"} className="mt-4 inline-block text-xs text-accent-soft hover:underline">
+              {gone === "signed-out" ? "Sign in →" : "← Back to workflows"}
             </Link>
           </div>
         ) : (
@@ -220,13 +232,15 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
   const s = w.stats ?? {};
   const recordCount = detail.record_count ?? w.record_count ?? records.length;
   const sourcesOk = s.sources_ok ?? detail.sources.filter((x) => x.status === "ok").length;
-  const sourcesFailed = s.sources_failed ?? detail.sources.filter((x) => x.status === "failed").length;
+  // count real errors only: stats.sources_failed also includes sources that just returned nothing, which the Sources tab shows as "No results"
+  const sourcesFailed = detail.sources.filter((x) => x.status === "failed").length;
   // Last sign of life: the row's updated_at (stage changes, batches) or the newest log event (each source start/finish).
   // Collecting can run a long time between stage changes, so updated_at alone would cry "stuck" too early.
   const lastActivity = Math.max(new Date(w.updated_at).getTime() || 0, new Date(detail.events.at(-1)?.created_at ?? 0).getTime() || 0);
-  // 3 minutes: one AI call may take up to 2 (provider failover), and planning logs nothing while it thinks
-  const stuck = running && now - lastActivity > 180_000;
-  const sourcesTotal = sourcesOk + sourcesFailed;
+  // 7 minutes: just past the server's 6-minute stuck cutoff (failStuckWorkflows), so Retry can't start a second run beside a live one
+  const stuck = running && now - lastActivity > 420_000;
+  const sourcesEmpty = detail.sources.filter((x) => x.status === "empty").length;
+  const sourcesTotal = Math.max(detail.sources.length, sourcesOk + sourcesFailed); // includes sources that returned nothing
 
   return (
     <div>
@@ -268,7 +282,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
           <ExportLink label="JSON" title="Export as JSON" href={`/api/workflows/${id}/export?format=json`} disabled={!recordCount}>
             <FileJson className="h-3.5 w-3.5" aria-hidden />
           </ExportLink>
-          <Btn label="Delete workflow" iconOnly onClick={() => setConfirmDelete(true)} disabled={!canEdit || busy !== null || confirmDelete} danger>
+          <Btn label="Delete workflow" iconOnly onClick={() => setConfirmDelete(true)} disabled={!canEdit || busy !== null || running || confirmDelete} danger>
             {busy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}
           </Btn>
         </div>
@@ -290,7 +304,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
       )}
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-[22px] font-semibold text-zinc-100">{w.title || w.plan?.title || w.prompt}</h1>
+          <h1 className="min-w-0 break-words text-[22px] font-semibold text-zinc-100">{w.title || w.plan?.title || w.prompt}</h1>
           <StatusBadge status={w.status} />
           {actionError && (
             <button type="button" onClick={() => setActionError(null)} className="text-left text-[12.5px] text-danger-soft" title="Dismiss">
@@ -309,9 +323,21 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         </div>
         <div className="mt-2 flex items-start gap-2 text-[13px] text-zinc-400">
           <span className="text-zinc-600">Prompt</span>
-          <span className="min-w-0">{w.prompt}</span>
-          <button title="Copy prompt" onClick={() => navigator.clipboard?.writeText(w.prompt)} className="text-zinc-600 hover:text-zinc-300">
-            <Copy className="h-3.5 w-3.5" />
+          <span className="min-w-0 break-words">{w.prompt}</span>
+          <button
+            type="button"
+            title="Copy prompt"
+            aria-label="Copy prompt"
+            onClick={() =>
+              navigator.clipboard?.writeText(w.prompt).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              })
+            }
+            className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-300"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+            {copied && <span className="text-[12px]" role="status">Copied</span>}
           </button>
         </div>
         <p className="mt-1 text-[12px] text-zinc-600" title={formatDateTime(w.created_at)}>
@@ -348,7 +374,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium text-zinc-200">This run seems stuck</p>
-            <p className="mt-0.5 text-[12.5px] text-zinc-500">No progress for about three minutes. You can start it again as a new run.</p>
+            <p className="mt-0.5 text-[12.5px] text-zinc-500">No progress for about seven minutes. You can start it again as a new run.</p>
           </div>
           <button
             type="button"
@@ -373,7 +399,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
             <p className="mt-0.5 break-words text-[12.5px] text-zinc-500">
               {w.status === "cancelled"
                 ? recordCount
-                  ? `The ${recordCount} rows collected before stopping are kept below.`
+                  ? `The ${recordCount} ${recordCount === 1 ? "row" : "rows"} collected before stopping ${recordCount === 1 ? "is" : "are"} kept below.`
                   : "Nothing was collected before it stopped."
                 : w.error || "An unknown error occurred."}
             </p>
@@ -414,7 +440,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
         <Stat
           label="Sources"
           value={running && !sourcesTotal ? "—" : <>{sourcesOk}<span className="text-zinc-600"> / {sourcesTotal}</span></>}
-          sub={running && !sourcesTotal ? undefined : sourcesFailed ? `${sourcesFailed} failed` : "all responded"}
+          sub={running && !sourcesTotal ? undefined : sourcesFailed ? `${sourcesFailed} failed` : sourcesEmpty ? `${sourcesEmpty} returned nothing` : "all responded"}
         />
         <Stat label="Duplicates merged" value={running && s.duplicates === undefined ? "—" : (s.duplicates ?? 0)} />
         <Stat label="Invalid dropped" value={running && s.invalid === undefined ? "—" : (s.invalid ?? 0)} />
@@ -476,7 +502,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
           {tab === "log" && <ActivityLog events={detail.events} running={running} />}
         </section>
 
-        {/* How it was built: agents + plan steps, on demand */}
+        {/* How it was built: mission control + plan steps, on demand */}
         {w.status !== "review" && (
           <section className="mt-8" aria-labelledby="build-toggle">
             <button
@@ -491,7 +517,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
               <span className="min-w-0">
                 <span className="block text-[13.5px] font-medium text-zinc-100">How this dataset was built</span>
                 <span className="block truncate text-[12px] text-zinc-500">
-                  {running ? "Agents are working. Open to watch them live." : "Mission control, the plan, and every source the agents used"}
+                  {running ? "The pipeline is working. Open to watch it live." : "Mission control, the plan, and every source it used"}
                 </span>
               </span>
               <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform ${showBuild ? "rotate-180" : ""}`} aria-hidden />

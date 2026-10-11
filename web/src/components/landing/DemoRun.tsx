@@ -16,7 +16,7 @@ export const useReducedMotion = () =>
 
 const DEMO_PROMPT = "Remote React jobs with salary info";
 const DEMO_AGENTS = [
-  { label: "Planner", detail: "8 columns" },
+  { label: "Planner", detail: "4 columns" },
   { label: "Remotive", detail: "16 items" },
   { label: "Arbeitnow", detail: "14 items" },
   { label: "RemoteOK", detail: "7 items" },
@@ -25,8 +25,8 @@ const DEMO_AGENTS = [
 ];
 const DEMO_ROWS = [
   ["Frontend Web Application Developer", "KoboToolbox", "$90k – $105k", "remotive.com"],
-  ["Senior Shopify Developer", "Sanctuary Computer", "$80k – $150k", "remotive.com"],
-  ["Senior Frontend Engineer", "Hotjar", "€70k – €85k", "remoteok.com"],
+  ["Senior React Developer", "Sanctuary Computer", "$80k – $150k", "remotive.com"],
+  ["Senior Frontend Engineer", "Hotjar", "$70k – $85k", "remoteok.com"],
   ["React Native Developer", "Toggl", "$75k – $95k", "arbeitnow.com"],
   ["Full-stack Engineer (React/Node)", "Close", "$120k – $160k", "remoteok.com"],
 ];
