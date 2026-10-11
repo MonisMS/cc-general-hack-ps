@@ -110,6 +110,7 @@ export interface Workflow {
   finished_at: string | null;
   record_count?: number;
   owner_id?: string | null; // null = shared read-only example
+  pinned_at?: string | null; // set = pinned to the top of the sidebar
 }
 
 export interface WorkflowEvent {

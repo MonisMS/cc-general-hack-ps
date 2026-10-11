@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Layers, PenSquare } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Layers, Loader2, MoreHorizontal, PenSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import type { Workflow } from "@/lib/types";
 import { Logo } from "./Logo";
 import { StatusIcon } from "./StatusBadge";
@@ -37,12 +37,37 @@ function useWorkflows() {
       clearInterval(t);
     };
   }, [pathname]);
-  return workflows;
+  return [workflows, setWorkflows] as const;
 }
+
+// same order as GET /api/workflows, so an optimistic pin lands where the next poll puts it
+const byPinThenNew = (a: Workflow, b: Workflow) =>
+  Number(!a.pinned_at) - Number(!b.pinned_at) ||
+  (b.pinned_at ?? "").localeCompare(a.pinned_at ?? "") ||
+  Number(!a.owner_id) - Number(!b.owner_id) ||
+  b.created_at.localeCompare(a.created_at);
 
 export function Sidebar() {
   const pathname = usePathname();
-  const workflows = useWorkflows();
+  const router = useRouter();
+  const [workflows, setWorkflows] = useWorkflows();
+
+  async function togglePin(w: Workflow) {
+    const pinned_at = w.pinned_at ? null : new Date().toISOString();
+    const set = (v: string | null) => setWorkflows((ws) => ws && ws.map((x) => (x.id === w.id ? { ...x, pinned_at: v } : x)).sort(byPinThenNew));
+    set(pinned_at);
+    try {
+      await fetchJSON(`/api/workflows/${w.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: !!pinned_at }) });
+    } catch {
+      set(w.pinned_at ?? null); // undo; the next poll would too
+    }
+  }
+
+  async function remove(w: Workflow) {
+    await fetchJSON(`/api/workflows/${w.id}`, { method: "DELETE" }); // throws the 409 "still running" text for the menu to show
+    setWorkflows((ws) => ws && ws.filter((x) => x.id !== w.id));
+    if (pathname === `/workflows/${w.id}`) router.push("/workflows");
+  }
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col bg-[linear-gradient(to_bottom,var(--color-sidebar)_0%,var(--color-sidebar)_62%,color-mix(in_oklab,var(--color-sidebar)_55%,transparent)_100%)] px-2.5 py-3 md:flex">
@@ -80,26 +105,16 @@ export function Sidebar() {
         ) : workflows.length === 0 ? (
           <p className="px-2.5 py-1 text-[12px] text-zinc-600">No workflows yet</p>
         ) : (
-          workflows.slice(0, 14).map((w, i) => {
-            const active = pathname === `/workflows/${w.id}`;
-            return (
-              <Link
-                key={w.id}
-                href={`/workflows/${w.id}`}
-                title={w.prompt}
-                style={{ animationDelay: `${i * 35}ms` }}
-                className={`animate-fade-up group flex h-7 items-center gap-2 rounded-md px-2.5 text-[12.5px] font-medium ${
-                  active ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                }`}
-              >
-                <StatusIcon status={w.status} size={12} mono={w.status === "completed"} />
-                <span className="min-w-0 flex-1 truncate">{w.title || w.prompt}</span>
-                {w.status === "completed" && (
-                  <span className="font-mono text-[10.5px] tabular-nums text-zinc-600">{w.record_count ?? 0}</span>
-                )}
-              </Link>
-            );
-          })
+          workflows.slice(0, 14).map((w, i) => (
+            <RecentItem
+              key={w.id}
+              w={w}
+              index={i}
+              active={pathname === `/workflows/${w.id}`}
+              onTogglePin={() => togglePin(w)}
+              onDelete={() => remove(w)}
+            />
+          ))
         )}
       </Section>
 
@@ -107,6 +122,144 @@ export function Sidebar() {
         <AccountMenu />
       </div>
     </aside>
+  );
+}
+
+function RecentItem({
+  w,
+  index,
+  active,
+  onTogglePin,
+  onDelete,
+}: {
+  w: Workflow;
+  index: number;
+  active: boolean;
+  onTogglePin: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const mine = !!w.owner_id; // the list holds only the user's workflows plus shared examples (no owner), which are read-only
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onDoc = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && close();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", close, true); // the menu is fixed, so on scroll it would drift off its row
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
+  function openMenu(e: React.MouseEvent<HTMLButtonElement>) {
+    if (menu) return setMenu(null);
+    const r = e.currentTarget.getBoundingClientRect();
+    setConfirming(false);
+    setError(null);
+    setMenu({ top: r.bottom + 4, left: r.left }); // fixed, not absolute: the Recent list scrolls and would clip it
+  }
+
+  async function confirmDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+      setDeleting(false);
+    }
+  }
+
+  const iconBtn = "grid h-5 w-5 shrink-0 place-items-center rounded text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-200";
+  const item = "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-[13px] text-zinc-300";
+  return (
+    <div
+      ref={ref}
+      style={{ animationDelay: `${index * 35}ms` }}
+      className={`animate-fade-up group flex h-7 items-center rounded-md text-[12.5px] font-medium ${
+        active || menu ? "bg-white/[0.07] text-zinc-100" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+      }`}
+    >
+      <Link href={`/workflows/${w.id}`} title={w.prompt} className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5 pr-1">
+        <StatusIcon status={w.status} size={12} mono={w.status === "completed"} />
+        <span className="min-w-0 flex-1 truncate">{w.title || w.prompt}</span>
+        {w.status === "completed" && (
+          <span className={`font-mono text-[10.5px] tabular-nums text-zinc-600 ${mine ? "group-focus-within:hidden group-hover:hidden" : ""} ${menu ? "hidden" : ""}`}>
+            {w.record_count ?? 0}
+          </span>
+        )}
+      </Link>
+      {mine && (
+        <div className={`items-center gap-0.5 pr-1.5 group-focus-within:flex group-hover:flex [@media(hover:none)]:flex ${menu ? "flex" : "hidden"}`}>
+          <button type="button" aria-label="More actions" aria-haspopup="menu" aria-expanded={!!menu} onClick={openMenu} className={iconBtn}>
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" aria-label={w.pinned_at ? "Unpin" : "Pin"} title={w.pinned_at ? "Unpin" : "Pin"} onClick={onTogglePin} className={iconBtn}>
+            {w.pinned_at ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      )}
+      {mine && w.pinned_at && !menu && (
+        <Pin aria-label="Pinned" className="mr-2 h-3 w-3 shrink-0 fill-current text-zinc-500 group-focus-within:hidden group-hover:hidden [@media(hover:none)]:hidden" />
+      )}
+
+      {menu && (
+        <div
+          role="menu"
+          style={{ top: menu.top, left: menu.left }}
+          className="animate-fade-up fixed z-50 w-52 rounded-xl border border-line-strong bg-raised p-1.5 shadow-[0_16px_40px_-12px_var(--color-zinc-950)]"
+        >
+          {confirming ? (
+            <div className="px-1.5 py-1">
+              <p className="mb-2 text-[12.5px] text-zinc-300">Delete with all records?</p>
+              {error && <p className="mb-2 text-[12px] text-danger-soft">{error}</p>}
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="flex h-7 items-center gap-1.5 rounded-md bg-danger/15 px-2.5 text-[12.5px] text-danger-soft hover:bg-danger/25"
+                >
+                  {deleting && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />} Delete
+                </button>
+                <button type="button" onClick={() => setMenu(null)} className="h-7 rounded-md px-2.5 text-[12.5px] text-zinc-400 hover:bg-white/[0.06]">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  setMenu(null);
+                  onTogglePin();
+                }}
+                className={`${item} hover:bg-zinc-50/[0.06] hover:text-zinc-50`}
+              >
+                {w.pinned_at ? <PinOff className="h-3.5 w-3.5" aria-hidden /> : <Pin className="h-3.5 w-3.5" aria-hidden />}
+                {w.pinned_at ? "Unpin" : "Pin"}
+              </button>
+              <button role="menuitem" type="button" onClick={() => setConfirming(true)} className={`${item} hover:bg-danger/10 hover:text-danger-soft`}>
+                <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
