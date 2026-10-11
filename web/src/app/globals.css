@@ -271,12 +271,8 @@ h1, h2, h3 {
 @keyframes mc-dot { 50% { opacity: 0.3; } }
 .mc-dot { animation: mc-dot 1.2s ease-in-out infinite; }
 
-/* NEW badge on rows first seen in the latest refresh */
-@keyframes new-glow { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 10px 1px color-mix(in oklab, var(--color-accent) 55%, transparent); } }
-.new-badge { animation: new-glow 2s ease-in-out infinite; }
-
 @media (prefers-reduced-motion: reduce) {
-  .mc-flow, .mc-glow, .mc-dot, .new-badge { animation: none; }
+  .mc-flow, .mc-glow, .mc-dot { animation: none; }
 }
 
 /* ---------- Home hero: ghost wordmark, light rays, glowing horizon (decorative, aria-hidden) ---------- */

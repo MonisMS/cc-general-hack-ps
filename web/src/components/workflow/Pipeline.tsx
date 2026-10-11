@@ -1,7 +1,7 @@
 import { Brain, Database, Download, Filter, ListChecks, ScanText, ShieldCheck } from "lucide-react";
 import type { Workflow, SourceRun } from "@/lib/types";
 import { connectorLabel, humanize } from "@/components/utils";
-import { StatusBadge, StatusIcon } from "@/components/StatusBadge";
+import { StatusIcon } from "@/components/StatusBadge";
 
 type StepState = "done" | "active" | "pending" | "failed";
 const ORDER = ["understand", "plan", "collect", "extract", "validate", "store"] as const;
@@ -130,7 +130,6 @@ export function Pipeline({ workflow: w, sources }: { workflow: Workflow; sources
                 {matched && (
                   <div className="flex shrink-0 items-center gap-1.5">
                     <span className="text-[11px] tabular-nums text-zinc-500">{matched.items} items</span>
-                    <StatusBadge mono status={matched.status} />
                   </div>
                 )}
               </div>

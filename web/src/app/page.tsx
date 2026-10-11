@@ -30,7 +30,7 @@ const FEATURES = [
   { icon: ListChecks, title: "Every condition checked", body: "Each row is marked met, not met or not stated for every condition in your request, with a one-line reason." },
   { icon: Workflow, title: "Mission control", body: "Watch the planner, each source, the extractor and the validator work live, with rows streaming into the table." },
   { icon: MessageSquareText, title: "Ask your data", body: "Ask questions in plain English; answers cite the rows they used so you can check them." },
-  { icon: Eye, title: "Watch for changes", body: "Refresh a dataset or put it on a schedule. New rows are badged; removed ones are counted." },
+  { icon: Eye, title: "Watch for changes", body: "Refresh a dataset or put it on a schedule. New rows and removed ones are counted." },
   { icon: Download, title: "Yours to keep", body: "Every workflow is kept; refresh updates in place. Export as CSV or JSON with sources attached." },
 ];
 
@@ -83,10 +83,6 @@ export default function Landing() {
         </div>
 
         <div className="relative z-10 mx-auto max-w-[860px] px-4 pt-28 text-center sm:px-6 md:pt-36">
-          <span className="glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12.5px] text-zinc-300">
-            <span className="mc-dot h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
-            AI-planned pipeline · every row source-backed
-          </span>
           <h1 id="lp-title" className="mt-7 text-[42px] font-semibold leading-[1.04] tracking-[-0.035em] text-zinc-50 sm:text-[68px]">
             Turn a sentence into
             <br />a cited dataset

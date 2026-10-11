@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { BadgeCheck, Check, HelpCircle, Quote, X } from "lucide-react";
+import { Check, HelpCircle, Quote, X } from "lucide-react";
 import { CHECK_REASONS_KEY, CHECK_SOURCES_KEY, CHECKS_KEY, METHOD_KEY, QUOTE_KEY, QUOTE_OK_KEY, WHY_KEY, type DataRecord, type FieldSpec } from "@/lib/types";
 import { hostOf } from "@/components/utils";
 
@@ -110,9 +110,7 @@ export function Evidence({ record, fields }: { record: DataRecord; fields: Field
       <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
         <Quote className="h-3.5 w-3.5 text-zinc-400" /> Evidence from source
         <span
-          className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-normal ${
-            verified ? "bg-success/15 text-success-soft" : "bg-white/[0.05] text-zinc-400"
-          }`}
+          className="ml-auto text-[11px] font-normal text-zinc-400"
           title={
             keyword
               ? "The AI was unavailable, so this sentence was picked because it has the most words from your request"
@@ -121,7 +119,6 @@ export function Evidence({ record, fields }: { record: DataRecord; fields: Field
                 : "Quote not found in source"
           }
         >
-          {verified ? <BadgeCheck className="h-3 w-3" /> : <HelpCircle className="h-3 w-3" />}
           {keyword ? "Picked by keyword match, not by AI" : verified ? "Quote found in source" : "Not found in source"}
         </span>
       </div>

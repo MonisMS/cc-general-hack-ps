@@ -24,7 +24,7 @@ import {
   Workflow as WorkflowIcon,
 } from "lucide-react";
 import type { DataRecord, SourceRun, Workflow, WorkflowEvent } from "@/lib/types";
-import { StatusBadge, StatusIcon } from "@/components/StatusBadge";
+import { StatusIcon } from "@/components/StatusBadge";
 import { ProgressBar } from "@/components/ProgressBar";
 import { fetchJSON, formatDateTime, isRunning, timeAgo } from "@/components/utils";
 import { Pipeline } from "@/components/workflow/Pipeline";
@@ -255,7 +255,7 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
               className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12.5px] transition ${
                 w.plan.watch ? "border-accent/40 bg-accent/10 text-accent-ink" : "border-line-strong bg-raised text-zinc-200"
               }`}
-              title="Automatically refresh this dataset and badge new rows"
+              title="Automatically refresh this dataset and count new rows"
             >
               <Eye className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
               <select
@@ -305,21 +305,12 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="min-w-0 break-words text-[22px] font-semibold text-zinc-100">{w.title || w.plan?.title || w.prompt}</h1>
-          <StatusBadge status={w.status} />
           {actionError && (
             <button type="button" onClick={() => setActionError(null)} className="text-left text-[12.5px] text-danger-soft" title="Dismiss">
               {actionError} ✕
             </button>
           )}
           {error && <span className="text-[12px] text-zinc-500">reconnecting…</span>}
-          {!canEdit && (
-            <span
-              className="rounded-full border border-line-strong px-2 py-0.5 text-[11.5px] text-zinc-400"
-              title="Shared example from before sign-in existed. Use Rerun to make your own editable copy."
-            >
-              Example · read-only
-            </span>
-          )}
         </div>
         <div className="mt-2 flex items-start gap-2 text-[13px] text-zinc-400">
           <span className="text-zinc-600">Prompt</span>
@@ -451,10 +442,10 @@ export default function WorkflowPage({ params }: { params: Promise<{ id: string 
       <div className="mt-6">
         <section className="min-w-0" aria-label="Dataset">
           <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
-            <TabBtn active={tab === "data"} onClick={() => setTab("data")} icon={Table2} label="Data" count={recordCount} />
-            <TabBtn active={tab === "insights"} onClick={() => setTab("insights")} icon={BarChart3} label="Insights" count={recordCount} />
-            <TabBtn active={tab === "sources"} onClick={() => setTab("sources")} icon={Plug} label="Sources" count={detail.sources.length} />
-            <TabBtn active={tab === "log"} onClick={() => setTab("log")} icon={ScrollText} label="Activity log" count={detail.events.length} />
+            <TabBtn active={tab === "data"} onClick={() => setTab("data")} icon={Table2} label="Data" />
+            <TabBtn active={tab === "insights"} onClick={() => setTab("insights")} icon={BarChart3} label="Insights" />
+            <TabBtn active={tab === "sources"} onClick={() => setTab("sources")} icon={Plug} label="Sources" />
+            <TabBtn active={tab === "log"} onClick={() => setTab("log")} icon={ScrollText} label="Activity log" />
           </div>
           {tab === "data" && (s.extraction === "heuristic" || s.extraction === "mixed") && (
             <div role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5 text-[12.5px] text-amber-200">
@@ -565,13 +556,11 @@ function TabBtn({
   onClick,
   icon: Icon,
   label,
-  count,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  count: number;
 }) {
   return (
     <button
@@ -582,9 +571,6 @@ function TabBtn({
     >
       <Icon className="h-3.5 w-3.5" />
       {label}
-      <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${active ? "bg-white/[0.08] text-zinc-300" : "bg-white/[0.04] text-zinc-500"}`}>
-        {count}
-      </span>
     </button>
   );
 }

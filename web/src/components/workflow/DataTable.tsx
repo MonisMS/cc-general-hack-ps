@@ -31,7 +31,7 @@ export function DataTable({
   onClearCited?: () => void;
   /** Resolves when the AI column is filled; rejects with a user-facing message. Omit to hide the button. */
   onAddColumn?: (question: string) => Promise<void>;
-  /** After a refresh: rows first seen after this timestamp get a NEW badge. */
+  /** After a refresh: rows first seen after this timestamp count as new (see the new-only filter). */
   newSince?: string | null;
   loading?: boolean;
   emptyHint?: string;
@@ -318,11 +318,7 @@ export function DataTable({
                   className="animate-fade-up cursor-pointer border-b border-white/5 text-zinc-300 transition last:border-0 hover:bg-zinc-50/[0.03] focus-visible:bg-zinc-50/[0.05] focus-visible:outline-offset-[-2px]"
                 >
                   <td className="px-3 py-2.5 text-[11px] tabular-nums text-zinc-600">
-                    {isNew(r) ? (
-                      <span className="new-badge rounded bg-accent px-1 py-0.5 text-[9.5px] font-semibold tracking-wide text-zinc-950">NEW</span>
-                    ) : (
-                      cur * PAGE + i + 1
-                    )}
+                    {cur * PAGE + i + 1}
                   </td>
                   {fields.map((f) => (
                     <td
