@@ -39,13 +39,23 @@ async function syncRecords(id: string, clean: CleanRow[], prune?: { since: strin
   return gone.length;
 }
 
+// web_search alone can take ~180s; past this a step counts as failed so extraction still gets its time
+const STEP_TIMEOUT_MS = 100_000;
+
 /** Run one source step, recording it in `sources` and the activity log. Failures return no items. */
-async function collectStep(id: string, step: SourceStep): Promise<RawItem[]> {
+async function collectStep(id: string, step: SourceStep, timeoutMs = STEP_TIMEOUT_MS): Promise<RawItem[]> {
   const c = CONNECTORS[step.connector];
   const t0 = Date.now();
   await logEvent(id, "collect", `→ ${c.label}: "${step.query}"`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const r = await c.run(step.query, step.limit ?? 20);
+    // connectors take no abort signal: a step that runs over is abandoned, and its fetches end with the function
+    const r = await Promise.race([
+      c.run(step.query, step.limit ?? 20),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new UserFacingError(`took longer than ${timeoutMs / 1000}s, so it was skipped`)), timeoutMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
     const ms = Date.now() - t0;
     for (const w of r.warnings ?? []) await logEvent(id, "collect", w, "warn");
     // "empty" rather than "ok" so a search that silently found nothing stands out in the Sources tab
@@ -148,6 +158,8 @@ export async function runWorkflow(id: string, prompt: string, opts: { review?: b
 // Runs live in an after() with maxDuration 300s: stop asking the AI at ~230s (counted from when the request started)
 // and finish with keyword matching, so the run completes instead of being killed mid-way.
 const RUN_BUDGET_MS = 230_000;
+// the top-up search + its extraction need this much of the budget left, or they would push the run past 300s
+const TOP_UP_MIN_MS = 60_000;
 
 export async function executePlan(id: string, plan: WorkflowPlan, opts: { refresh?: boolean; startedAt?: number } = {}) {
   const deadline = (opts.startedAt ?? Date.now()) + RUN_BUDGET_MS;
@@ -220,10 +232,14 @@ export async function executePlan(id: string, plan: WorkflowPlan, opts: { refres
     // Thin result: one extra web search phrased from the dataset title, then validate everything again
     const want = Math.min(20, work.max_results);
     const topUpQuery = work.title.slice(0, 120);
-    if (clean.length < want && !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())) {
+    if (
+      clean.length < want &&
+      deadline - Date.now() > TOP_UP_MIN_MS &&
+      !work.sources.some((s) => s.connector === "web_search" && s.query.toLowerCase() === topUpQuery.toLowerCase())
+    ) {
       await assertNotCancelled(id, stats.run_started_at);
       await logEvent(id, "collect", `Only ${clean.length} row${clean.length === 1 ? "" : "s"} so far, so running one extra web search`);
-      const topUp = await collectStep(id, { connector: "web_search", query: topUpQuery, limit: 10 });
+      const topUp = await collectStep(id, { connector: "web_search", query: topUpQuery, limit: 10 }, 45_000);
       collected.push({ connector: "web_search", items: topUp });
       // the extra search is a source step too, so it belongs in the sources ok / failed counts
       if (topUp.length) stats.sources_ok = (stats.sources_ok ?? 0) + 1;

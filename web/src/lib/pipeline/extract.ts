@@ -28,6 +28,8 @@ const PAGE_SOURCES = new Set<RawItem["source"]>(["web_search", "url_fetch", "wik
 const batchSize = () => Math.min(Math.max(Number(process.env.EXTRACT_BATCH) || 6, 1), 20);
 // Two batches at a time: four in parallel tripped per-minute rate limits on free LLM tiers.
 const CONCURRENCY = 2;
+// An AI call still running at the run's deadline gets this long, then gives up so the run ends inside maxDuration (300s).
+const LLM_GRACE_MS = 40_000;
 
 /** "published: 2026-09-18 (15 days ago)" so the model never has to do date arithmetic for recency checks. */
 function published(it: RawItem) {
@@ -50,7 +52,7 @@ function describeItem(i: number, it: RawItem, terms: string[]) {
 }
 
 /** LLM extraction: turn raw items into rows matching the plan schema. */
-async function llmBatch(plan: WorkflowPlan, items: RawItem[]): Promise<Extracted[] | null> {
+async function llmBatch(plan: WorkflowPlan, items: RawItem[], until?: number): Promise<Extracted[] | null> {
   const schema = plan.fields.map((f) => `- ${f.name} (${f.type}${f.required ? ", required" : ""}): ${f.description}`).join("\n");
   const system = `You are the extraction agent of a data platform. Convert raw source items into structured rows.
 Today's date: ${new Date().toISOString().slice(0, 10)}. For time-based constraints use each item's "published" age (e.g. "15 days ago" fails "last 7 days").
@@ -75,7 +77,12 @@ Rules:
 - "checks" = an object with one entry per constraint, keyed by its number: [verdict, reason]. verdict is true if the item shows it is met, false if it shows it is violated, null if the item doesn't say. reason = the concrete evidence in at most 8 words (e.g. "posted 3 days ago", "office in Berlin only"); leave it out when the verdict is null. Use {} when there are no constraints.
 - Location constraints: a row located in a different city/state/country is false. A remote role counts as met only if the constraint itself allows remote AND the role is open to people in the named place (e.g. "Remote, Europe only" fails "India or remote").
 Return {"rows": [{"item": <ITEM number>, "relevance": number, "why": string, "quote": string, "checks": {"1": [true, "reason"], "2": [null]}, "data": {<schema fields>}}]}`;
-  const res = await llmJSON<{ rows: ModelRow[] }>(system, items.map((it, i) => describeItem(i, it, planTerms(plan))).join("\n\n"), outputBudget(items, plan.filters.length));
+  const res = await llmJSON<{ rows: ModelRow[] }>(
+    system,
+    items.map((it, i) => describeItem(i, it, planTerms(plan))).join("\n\n"),
+    outputBudget(items, plan.filters.length),
+    until ? { totalMs: Math.min(120_000, until - Date.now()) } : {},
+  );
   if (!res) return null;
   return toExtracted(res.rows ?? [], items, plan.filters.length);
 }
@@ -184,9 +191,9 @@ export function salvageRows(text: string): ModelRow[] {
  */
 type Extraction = { rows: Extracted[]; missed: RawItem[]; error?: unknown };
 
-async function llmExtract(plan: WorkflowPlan, items: RawItem[], notes: string[], retry = true): Promise<Extraction | null> {
+async function llmExtract(plan: WorkflowPlan, items: RawItem[], notes: string[], retry = true, until?: number): Promise<Extraction | null> {
   try {
-    const rows = await llmBatch(plan, items);
+    const rows = await llmBatch(plan, items, until);
     return rows && { rows, missed: [] };
   } catch (e) {
     if (!(e instanceof LLMOutputError)) throw e;
@@ -198,7 +205,7 @@ async function llmExtract(plan: WorkflowPlan, items: RawItem[], notes: string[],
       // (rate limit, outage) sends only its own pages to keywords and keeps the other half's rows; the error is
       // passed on so the run can still stop asking a provider that is out of quota.
       const half = async (part: RawItem[]): Promise<Extraction> =>
-        llmExtract(plan, part, notes, false)
+        llmExtract(plan, part, notes, false, until)
           .then((r) => r ?? { rows: [], missed: part })
           .catch((error) => ({ rows: [], missed: part, error }));
       const a = await half(items.slice(0, mid));
@@ -346,6 +353,7 @@ export async function extractAll(
   const BATCH = batchSize();
   for (let i = 0; i < items.length; i += BATCH) batches.push(items.slice(i, i + BATCH));
   const kw = keywordTerms(plan);
+  const until = deadline && deadline + LLM_GRACE_MS;
 
   const rows: Extracted[] = [];
   let llmAvailable = true;
@@ -368,7 +376,7 @@ export async function extractAll(
         const notes: string[] = [];
         let failure: unknown;
         try {
-          const res = await llmExtract(plan, batch, notes);
+          const res = await llmExtract(plan, batch, notes, true, until);
           if (res === null) llmAvailable = false;
           else {
             out = [...res.rows, ...res.missed.map((it) => heuristicMap(plan, it, kw))];
