@@ -70,7 +70,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     RETURNING id`;
   if (!reserved) {
     await refundUsage(access.user.id, "ai");
-    return NextResponse.json({ error: "This dataset already has that column, or it is being added right now." }, { status: 409 });
+    // say which one: the same question again, or another column (or the cap) landing first
+    const [{ dup }] = await sql`SELECT EXISTS (SELECT 1 FROM workflows, jsonb_array_elements(plan->'fields') f
+      WHERE id = ${id} AND f->>'ai' = 'true' AND f->>'description' = ${q}) AS dup`;
+    const error = dup
+      ? "This dataset already has that column."
+      : `Another AI column is being added right now (or the limit of ${MAX_AI_COLUMNS} was reached). Try again in a moment.`;
+    return NextResponse.json({ error }, { status: 409 });
   }
   const cols = plan.fields.map((f) => f.name);
   const system = `You are the enrichment agent of a data platform. For every row, answer this question as a new spreadsheet column:
@@ -83,38 +89,47 @@ Rules:
 - "basis": max 15 words naming which of the row's values the answer is based on.
 Return {"answers": [{"id": number, "value": string|null, "basis": string}]}`;
 
-  const batches: (typeof records)[] = [];
-  for (let i = 0; i < records.length; i += BATCH) batches.push(records.slice(i, i + BATCH));
-  const answers = new Map<number, { value: string | null; basis: string }>();
-  let failed = 0;
-  await Promise.all(
-    batches.map(async (rows) => {
-      const lines = rows.map((r) => `id=${r.id} | ` + [...cols.map((c) => `${c}: ${clip(r.data[c])}`), `why_matched: ${clip(r.data[WHY_KEY])}`, `source: ${host(r.source_url)}`].join(" | "));
-      try {
-        const res = await llmJSON<{ answers?: { id: number; value: unknown; basis?: unknown }[] }>(system, untrusted(lines.join("\n")), 2000, { timeoutMs: 25_000 });
-        if (!res) throw new Error("No LLM key configured");
-        for (const a of res.answers ?? [])
-          if (rows.some((r) => Number(r.id) === Number(a.id)))
-            answers.set(Number(a.id), { value: a.value == null || a.value === "" ? null : String(a.value).slice(0, 160), basis: String(a.basis ?? "").slice(0, 160) });
-      } catch (e) {
-        failed++;
-        console.error("AI column batch failed", e);
-      }
-    }),
-  );
-  if (!answers.size) {
-    await sql`UPDATE workflows SET plan = jsonb_set(plan, '{fields}',
-      (SELECT COALESCE(jsonb_agg(f), '[]'::jsonb) FROM jsonb_array_elements(plan->'fields') f WHERE f->>'name' <> ${name})) WHERE id = ${id}`;
-    await refundUsage(access.user.id, "ai");
-    return NextResponse.json({ error: "The AI couldn't fill this column right now. Try again in a minute." }, { status: 502 });
-  }
+  // Until its answers are stored the reserved column is a placeholder: every other way out (no answers, a throw,
+  // a DB error) removes it and refunds the use, or the same question would be refused as a duplicate forever.
+  let filled = false;
+  try {
+    const batches: (typeof records)[] = [];
+    for (let i = 0; i < records.length; i += BATCH) batches.push(records.slice(i, i + BATCH));
+    const answers = new Map<number, { value: string | null; basis: string }>();
+    let failed = 0;
+    await Promise.all(
+      batches.map(async (rows) => {
+        const lines = rows.map((r) => `id=${r.id} | ` + [...cols.map((c) => `${c}: ${clip(r.data[c])}`), `why_matched: ${clip(r.data[WHY_KEY])}`, `source: ${host(r.source_url)}`].join(" | "));
+        try {
+          // 90s total ends inside maxDuration (120s), so the finally below always gets to run
+          const res = await llmJSON<{ answers?: { id: number; value: unknown; basis?: unknown }[] }>(system, untrusted(lines.join("\n")), 2000, { timeoutMs: 25_000, totalMs: 90_000 });
+          if (!res) throw new Error("No LLM key configured");
+          for (const a of res.answers ?? [])
+            if (rows.some((r) => Number(r.id) === Number(a.id)))
+              answers.set(Number(a.id), { value: a.value == null || a.value === "" ? null : String(a.value).slice(0, 160), basis: String(a.basis ?? "").slice(0, 160) });
+        } catch (e) {
+          failed++;
+          console.error("AI column batch failed", e);
+        }
+      }),
+    );
+    if (!answers.size) return NextResponse.json({ error: "The AI couldn't fill this column right now. Try again in a minute." }, { status: 502 });
 
-  const updates = [...answers].map(([rid, a]) => ({ id: rid, patch: { [name]: a.value, [`_basis_${name}`]: a.basis } }));
-  await sql`UPDATE records r SET data = r.data || u.patch
-    FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb) AS u(id bigint, patch jsonb)
-    WHERE r.id = u.id AND r.workflow_id = ${id}`;
-  await sql`UPDATE workflows SET updated_at = now() WHERE id = ${id}`;
-  await sql`INSERT INTO workflow_events (workflow_id, step, level, message)
-    VALUES (${id}, 'enrich', 'success', ${`AI column "${q}" filled for ${answers.size} of ${records.length}${all.length > records.length ? ` top rows (of ${all.length})` : " rows"}${failed ? ` (${failed} batch${failed > 1 ? "es" : ""} failed)` : ""}`})`;
-  return NextResponse.json({ field, filled: answers.size, total: records.length, rows_total: all.length });
+    const updates = [...answers].map(([rid, a]) => ({ id: rid, patch: { [name]: a.value, [`_basis_${name}`]: a.basis } }));
+    await sql`UPDATE records r SET data = r.data || u.patch
+      FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb) AS u(id bigint, patch jsonb)
+      WHERE r.id = u.id AND r.workflow_id = ${id}`;
+    filled = true;
+    await sql`UPDATE workflows SET updated_at = now() WHERE id = ${id}`;
+    await sql`INSERT INTO workflow_events (workflow_id, step, level, message)
+      VALUES (${id}, 'enrich', 'success', ${`AI column "${q}" filled for ${answers.size} of ${records.length}${all.length > records.length ? ` top rows (of ${all.length})` : " rows"}${failed ? ` (${failed} batch${failed > 1 ? "es" : ""} failed)` : ""}`})`;
+    return NextResponse.json({ field, filled: answers.size, total: records.length, rows_total: all.length });
+  } finally {
+    if (!filled)
+      await Promise.all([
+        sql`UPDATE workflows SET plan = jsonb_set(plan, '{fields}',
+          (SELECT COALESCE(jsonb_agg(f), '[]'::jsonb) FROM jsonb_array_elements(plan->'fields') f WHERE f->>'name' <> ${name})) WHERE id = ${id}`,
+        refundUsage(access.user.id, "ai"),
+      ]).catch((e) => console.error(`AI column ${name}: couldn't remove the unfilled column`, e));
+  }
 }
