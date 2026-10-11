@@ -30,10 +30,18 @@ export async function authorize(id: string, mode: "read" | "write"): Promise<{ u
   const user = await sessionUser();
   if (!user) return unauthorized();
   if (user instanceof NextResponse) return user;
+  const access = await accessFor(user.id, id, mode);
+  if (access === "ok") return { user };
+  return access === "read_only" ? NextResponse.json({ error: READ_ONLY }, { status: 403 }) : notFound();
+}
+
+export const READ_ONLY = "Examples are read-only. Rerun it to get your own copy.";
+
+/** The same rules for any caller (session or API key). Someone else's workflow is "not_found", so it isn't revealed. */
+export async function accessFor(userId: string, id: string, mode: "read" | "write"): Promise<"ok" | "read_only" | "not_found"> {
   const [w] = await sql`SELECT owner_id FROM workflows WHERE id = ${id}`;
-  if (!w) return notFound();
-  if (w.owner_id === user.id) return { user };
-  if (w.owner_id == null && mode === "read") return { user };
-  // don't reveal that someone else's workflow exists
-  return w.owner_id == null ? NextResponse.json({ error: "Examples are read-only. Rerun it to get your own copy." }, { status: 403 }) : notFound();
+  if (!w) return "not_found";
+  if (w.owner_id === userId) return "ok";
+  if (w.owner_id == null) return mode === "read" ? "ok" : "read_only";
+  return "not_found";
 }
