@@ -27,6 +27,10 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // create_dataset starts the pipeline after the response, in this invocation
 
+// create_dataset runs the whole pipeline inside this request (up to 300s) and hung runs burned the Fluid memory quota.
+// Off until the run starts outside the MCP request.
+const CREATE_DISABLED = true;
+
 const RUNNING = new Set(["queued", "planning", "collecting", "processing"]);
 const STAGE: Record<string, string> = {
   queued: "queued",
@@ -161,6 +165,7 @@ Returns immediately with a dataset id; a run takes 1-4 minutes. Then call datapi
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ request }, ctx) => {
+        if (CREATE_DISABLED) return fail("Creating datasets over MCP is temporarily disabled. Create it in the web app, then use the other tools to read it.");
         const { userId, origin } = caller(ctx as Ctx);
         const blocked = blockedReason(request);
         if (blocked) return fail(blocked);
