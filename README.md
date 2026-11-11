@@ -33,15 +33,23 @@ Each row keeps the source excerpt it came from; the quote is checked against the
 - **Watch**: refresh a dataset by hand or on a schedule. Vercel Cron calls `/api/cron/refresh` daily and refreshes watched datasets whose interval has passed. Refresh updates rows in place; new rows are badged.
 - **Eval**: `pnpm eval` runs the prompts in `web/eval/prompts.json` through the real pipeline and reports rows, quote-verified rate, fill rate and LLM usage. It uses real LLM and Firecrawl quota; `--no-ai` and `--replay` avoid most of it. Precision needs hand labels (`pnpm eval:score`).
 
-## Use it from your AI assistant (MCP)
+## MCP subscription access (coming soon)
 
-DataPilot is also an MCP server at `/api/mcp` (Streamable HTTP, stateless). Sign in, open **Connect AI**, create an API key, and copy the setup for your client:
+MCP is reserved for a future paid subscription. Access is currently **locked for every account**; there is no checkout or subscription billing yet. The **Connect AI** page explains this and links back to the web app.
 
-- **Claude (web & desktop), ChatGPT:** add a custom connector with the URL `https://datapilot-intel.vercel.app/api/mcp?key=dp_…`
-- **Claude Code:** `claude mcp add --transport http datapilot https://datapilot-intel.vercel.app/api/mcp --header "Authorization: Bearer dp_…"`
-- **Cursor / VS Code:** an `mcp.json` entry with the URL and an `Authorization: Bearer dp_…` header
+- Every supported HTTP method at `/api/mcp` returns a finite HTTP 402 response with code `MCP_SUBSCRIPTION_REQUIRED`, before loading the MCP transport or checking an API key. Existing keys do not bypass the lock.
+- `POST /api/keys` returns the same response. Authenticated key listing and revocation remain available; stored keys are not deleted.
+- The original implementation is preserved in `web/src/lib/mcp/server.ts` and is not imported by the public route.
+- The lock is hard-coded, with no environment-variable bypass. Before reconnecting the implementation, add server-verified subscription entitlements and complete the subscription-stream, request-budget, and durable-job repairs. Do not unblock access by merely restoring the old handler exports.
 
-Tools: `datapilot_create_dataset`, `datapilot_get_status` (with `wait_seconds` to follow a run), `datapilot_get_rows` (JSON or CSV, with source links, quotes and per-criterion verdicts), `datapilot_ask` and `datapilot_list_datasets`. Keys are stored as SHA-256 hashes, can be revoked, and every tool applies the same ownership rules and hourly limits as the web app.
+This source change does not resume or deploy the paused Vercel project. It prevents MCP execution once deployed; rejected requests still count as hosting requests.
+
+Offline regression check (no production services or model calls):
+
+```bash
+cd web
+pnpm exec tsx --test scripts/test-mcp-lock.ts
+```
 
 ## Stack
 - `web/`: Next.js 16 (App Router) with the UI and API routes. The pipeline runs in the background via `after()` on Vercel.
